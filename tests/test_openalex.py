@@ -6,7 +6,9 @@ import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 
+import polars as pl
 import pytest
 
 import openalex
@@ -109,3 +111,31 @@ def test_calls_are_spaced_out(api: FakeApi, monkeypatch: pytest.MonkeyPatch) -> 
     # todo el intervalo.
     (pause,) = api.sleeps
     assert 0.1 < pause <= 0.2
+
+
+def test_match_keeps_rows_reviewed_by_hand(
+    api: FakeApi, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pl.DataFrame({"person": ["Ana López", "Luis Pérez"], "lab": ["IA", "IA"]}).write_parquet(
+        tmp_path / "people.parquet"
+    )
+    mapping = tmp_path / "openalex_authors.csv"
+    mapping.write_text(
+        "person,openalex_ids,display_name,works_count,institution,status\n"
+        "Ana López,A9,Ana López,12,Instituto Politécnico Nacional,corregido\n"
+        "Luis Pérez,A1,Luis Pérez,3,,auto\n"
+    )
+    monkeypatch.setattr(openalex, "DATA", tmp_path)
+    monkeypatch.setattr(openalex, "MAPPING", mapping)
+    # OpenAlex propone para Luis el mismo autor que Ana ya tiene corregido.
+    api.replies = [{"results": [{"id": "https://openalex.org/A9", "display_name": "L. Pérez"}]}]
+
+    openalex.match()
+
+    rows = {row["person"]: row for row in openalex.read_mapping()}
+    assert rows["Ana López"]["openalex_ids"] == "A9"
+    assert rows["Ana López"]["status"] == "corregido"
+    assert rows["Luis Pérez"]["status"] == "revisar"
+    # Solo se buscó a Luis: la fila corregida no vuelve a consultarse.
+    assert len(api.requests) == 1
+    assert "Luis" in api.requests[0].full_url

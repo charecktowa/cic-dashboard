@@ -35,6 +35,8 @@ TOP_WORKS = 25
 HIDDEN_TYPES = ("dissertation",)
 IPN_NAMES = ("instituto politecnico nacional", "national polytechnic institute")
 FIELDS = ["person", "openalex_ids", "display_name", "works_count", "institution", "status"]
+# Estado de una fila revisada a mano: match la respeta.
+REVIEWED = "corregido"
 # Una llamada cada 0.2 s: lejos del límite de OpenAlex (10 por segundo sin llave, 30 con ella).
 MIN_INTERVAL = 0.2
 # Esperas antes de cada reintento; si el último también falla, el error se propaga.
@@ -103,49 +105,64 @@ def name_score(person: str, author: dict[str, Any]) -> float:
 
 
 def match() -> None:
-    """Propone, para cada persona investigadora del CIC, su autor más probable en OpenAlex."""
+    """Propone, para cada persona investigadora del CIC, su autor más probable en OpenAlex.
+
+    Las filas marcadas a mano como `corregido` se conservan tal cual y no se vuelven a
+    buscar: volver a correr match no deshace una corrección.
+    """
     people = pl.read_parquet(DATA / "people.parquet").drop_nulls("lab")["person"].to_list()
-    rows = []
-    for person in sorted(people):
-        candidates = get("/authors", search=person, per_page=10)["results"]
-        scored = sorted(
-            candidates,
-            key=lambda a: (is_ipn(a), name_score(person, a), a.get("works_count", 0)),
-            reverse=True,
-        )
-        best = scored[0] if scored else None
-        if best is None:
-            rows.append({"person": person, "status": "sin coincidencia"})
-            continue
-        institution = (best.get("last_known_institutions") or [{}])[0].get("display_name", "")
-        confident = is_ipn(best) and name_score(person, best) >= 0.75
-        rows.append(
-            {
-                "person": person,
-                "openalex_ids": best["id"].rsplit("/", 1)[-1],
-                "display_name": best.get("display_name", ""),
-                "works_count": best.get("works_count", 0),
-                "institution": institution,
-                "status": "auto" if confident else "revisar",
-            }
-        )
+    rows = [row for row in read_mapping() if row["status"] == REVIEWED]
+    reviewed = {row["person"] for row in rows}
+    for person in sorted(set(people) - reviewed):
+        rows.append(propose(person))
         print(f"{rows[-1]['status']:>16}  {person}  →  {rows[-1].get('display_name', '')}")
     # Dos personas del CIC con el mismo autor de OpenAlex: al menos una está mal.
     ids = [row.get("openalex_ids") for row in rows]
     for row in rows:
-        if row.get("openalex_ids") and ids.count(row["openalex_ids"]) > 1:
+        duplicated = row.get("openalex_ids") and ids.count(row["openalex_ids"]) > 1
+        if duplicated and row["status"] != REVIEWED:
             row["status"] = "revisar"
     with MAPPING.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDS)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(sorted(rows, key=lambda row: row["person"]))
     print(f"\nRevisa {MAPPING.name}: corrige los ids marcados como 'revisar' y borra los erróneos.")
+
+
+def propose(person: str) -> dict[str, Any]:
+    """El autor de OpenAlex más probable para una persona, como fila del CSV."""
+    candidates = get("/authors", search=person, per_page=10)["results"]
+    scored = sorted(
+        candidates,
+        key=lambda a: (is_ipn(a), name_score(person, a), a.get("works_count", 0)),
+        reverse=True,
+    )
+    if not scored:
+        return {"person": person, "status": "sin coincidencia"}
+    best = scored[0]
+    institution = (best.get("last_known_institutions") or [{}])[0].get("display_name", "")
+    confident = is_ipn(best) and name_score(person, best) >= 0.75
+    return {
+        "person": person,
+        "openalex_ids": best["id"].rsplit("/", 1)[-1],
+        "display_name": best.get("display_name", ""),
+        "works_count": best.get("works_count", 0),
+        "institution": institution,
+        "status": "auto" if confident else "revisar",
+    }
+
+
+def read_mapping() -> list[dict[str, str]]:
+    """Las filas de openalex_authors.csv; ninguna si todavía no existe."""
+    if not MAPPING.exists():
+        return []
+    with MAPPING.open(newline="") as file:
+        return list(csv.DictReader(file))
 
 
 def fetch() -> None:
     """Métricas, citas por año y trabajos más citados de los autores revisados."""
-    with MAPPING.open() as file:
-        mapping = [row for row in csv.DictReader(file) if row["openalex_ids"].strip()]
+    mapping = [row for row in read_mapping() if row["openalex_ids"].strip()]
     authors, years, works = [], [], []
     for row in mapping:
         person = row["person"]
