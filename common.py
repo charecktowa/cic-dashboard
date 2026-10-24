@@ -23,25 +23,27 @@ KIND_COLORS = {"Artículo": BLUE, "Congreso": CORAL}
 # Escalas sin extremos casi blancos ni casi negros, que desaparecerían en un modo u otro.
 TEAL_SCALE = ["#7ccfc0", "#1f8a7e"]
 ORANGE_SCALE = ["#f6b17a", "#c2410c"]
-# Un color por laboratorio. Tonos intermedios y separados entre sí (ΔE ≥ 21) para que
-# se distingan sobre el fondo claro y el oscuro y entre pantallas sin calibración.
-LAB_PALETTE = [
-    "#2a9d8f",
-    "#4a90d9",
-    "#e76f51",
-    "#9b7fd9",
-    "#f4a261",
-    "#e15f99",
-    "#8cd17d",
-    "#9c755f",
-    "#edc948",
-    "#6e899c",
-    "#ff9da7",
-    "#b07aa1",
-    "#b68100",
-    "#c77dff",
-    "#c46a1b",
-]
+# Un color fijo por laboratorio del CIC. Tonos intermedios y separados entre sí (ΔE ≥ 21)
+# para que se distingan sobre el fondo claro y el oscuro y entre pantallas sin calibración.
+# Van por nombre y no por posición: si el catálogo agrega o renombra un laboratorio, los
+# demás conservan el suyo.
+LAB_COLORS = {
+    "Ciberseguridad": "#2a9d8f",
+    "Ciencia de Datos y Tecnología de Software": "#4a90d9",
+    "Ciencias Cognitivas Computacionales": "#e76f51",
+    "Ciencias Matemáticas y Computacionales": "#9b7fd9",
+    "Ciencias de la Información Cuántica": "#f4a261",
+    "Cómputo Inteligente": "#e15f99",
+    "Inteligencia Artificial": "#8cd17d",
+    "Microtecnología y Sistemas Embebidos": "#9c755f",
+    "Procesamiento Digital de Señales": "#edc948",
+    "Procesamiento Inteligente de Información Geoespacial": "#6e899c",
+    "Procesamiento de Lenguaje Natural": "#ff9da7",
+    "Redes y Ciencia de Datos": "#b07aa1",
+    "Robótica y Mecatrónica": "#b68100",
+    "Simulación y Modelado": "#c77dff",
+    "Sistemas Inteligentes para la Automatización": "#c46a1b",
+}
 ALL_LABS = "Todos los laboratorios"
 AUTHOR = "Andrea Gutiérrez"
 AUTHOR_URL = "https://github.com/charecktowa"
@@ -119,11 +121,24 @@ def snapshot() -> datetime.date:
     return load("meta")["snapshot"][0]
 
 
+def assign_lab_colors(labs: list[str]) -> dict[str, str]:
+    """El color de LAB_COLORS para cada laboratorio conocido.
+
+    Uno nuevo toma, en orden alfabético, un color que no use ningún otro laboratorio
+    presente; los colores solo se repiten si hay más laboratorios que colores.
+    """
+    colors = {lab: LAB_COLORS[lab] for lab in labs if lab in LAB_COLORS}
+    palette = list(LAB_COLORS.values())
+    free = [c for c in palette if c not in colors.values()] or palette
+    for i, lab in enumerate(sorted(set(labs) - set(colors))):
+        colors[lab] = free[i % len(free)]
+    return colors
+
+
 @st.cache_data
 def lab_colors() -> dict[str, str]:
     """Un color estable por laboratorio: el mismo en todas las gráficas de la app."""
-    labs = sorted(load("lab_stats")["lab"].to_list())
-    return {lab: LAB_PALETTE[i % len(LAB_PALETTE)] for i, lab in enumerate(labs)}
+    return assign_lab_colors(load("lab_stats")["lab"].to_list())
 
 
 def lab_code(lab: str) -> str:

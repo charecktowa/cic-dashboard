@@ -124,6 +124,17 @@ def test_lab_colors_are_distinct() -> None:
     assert len(set(colors.values())) == len(colors)
 
 
+def test_lab_colors_survive_a_new_lab() -> None:
+    import common
+
+    known = list(common.LAB_COLORS)
+    before = common.assign_lab_colors(known[1:])
+    after = common.assign_lab_colors([*known[1:], "Laboratorio Nuevo"])
+    # Los demás conservan su color y el nuevo toma el que quedó libre.
+    assert {lab: after[lab] for lab in before} == before
+    assert after["Laboratorio Nuevo"] == common.LAB_COLORS[known[0]]
+
+
 def test_year_axis_marks_every_year() -> None:
     import plotly.graph_objects as go
 
