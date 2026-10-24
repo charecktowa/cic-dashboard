@@ -198,7 +198,10 @@ if venue_source == CATALOG:
 elif openalex_venues is None:
     st.info("Esta instantánea de datos todavía no incluye las revistas de OpenAlex.")
 elif not show_openalex_venues(openalex_venues.filter(in_lab), venue_top):
-    st.info("Ninguna persona de este laboratorio tiene un perfil de OpenAlex vinculado.")
+    st.info(
+        "No hay trabajos de OpenAlex en revistas o congresos para este laboratorio: nadie "
+        "tiene un perfil vinculado, o sus trabajos no tienen revista registrada."
+    )
 with_venue = venues.filter(pl.col("lab").is_null())["outputs"].sum()
 all_outputs = dict(load("totals").iter_rows())["Artículos y congresos"]
 # Las mismas personas que openalex.cic_venue_counts(): el personal con laboratorio.

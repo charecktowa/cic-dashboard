@@ -712,4 +712,4 @@ def test_a_lab_without_openalex_profiles_says_so() -> None:
     linked = common.load("openalex_cic_venues")["lab"].drop_nulls().to_list()
     unlinked = next(lab for lab in common.load("lab_stats")["lab"] if lab not in linked)
     app = openalex_venue_page(unlinked)
-    assert any("perfil de OpenAlex vinculado" in info.value for info in app.info)
+    assert any("No hay trabajos de OpenAlex" in info.value for info in app.info)
