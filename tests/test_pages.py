@@ -221,3 +221,25 @@ render_profile('Persona 9')
     card = next(m for m in app.metric if m.label == "Productos")
     assert len(card.proto.chart_data) == span
     assert f"de {first} a {last}" in card.proto.help
+
+
+def test_translucent_keeps_the_color() -> None:
+    import common
+
+    assert common.translucent("#2a9d8f", 0.45) == "rgba(42, 157, 143, 0.45)"
+
+
+@pytest.mark.usefixtures("tables")
+def test_codirection_flow_uses_lab_colors() -> None:
+    import common
+
+    colors = common.lab_colors()
+    sankey = next(
+        trace
+        for spec in chart_specs(open_page("colaboracion"))
+        for trace in spec["data"]
+        if trace["type"] == "sankey"
+    )
+    nodes = sankey["node"]
+    assert nodes["customdata"], "el catálogo falso debe tener codirecciones"
+    assert nodes["color"] == [colors[lab] for lab in nodes["customdata"]]

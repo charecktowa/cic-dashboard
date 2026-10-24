@@ -143,6 +143,12 @@ def lab_colors() -> dict[str, str]:
     return assign_lab_colors(load("lab_stats")["lab"].to_list())
 
 
+def translucent(color: str, alpha: float) -> str:
+    """Un color "#rrggbb" como rgba, por ejemplo para las bandas de un Sankey."""
+    red, green, blue = (int(color[i : i + 2], 16) for i in (1, 3, 5))
+    return f"rgba({red}, {green}, {blue}, {alpha})"
+
+
 def lab_code(lab: str) -> str:
     """Siglas de un laboratorio: "Robótica y Mecatrónica" → "RyM"."""
     if lab in LAB_CODE_OVERRIDES:
