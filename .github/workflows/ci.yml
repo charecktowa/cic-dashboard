@@ -34,25 +34,26 @@ jobs:
         run: uv lock --check
 
       # El grupo export trae psycopg: las pruebas usan las funciones de export.py.
+      # --no-build: solo wheels, ningún sdist corre su script de build en el runner.
       - name: Install dependencies
-        run: uv sync --frozen --all-groups
+        run: uv sync --frozen --all-groups --no-build
 
       - name: Ruff lint
-        run: uv run --no-sync ruff check .
+        run: uv run --no-sync --no-build ruff check .
 
       - name: Ruff format check
-        run: uv run --no-sync ruff format --check .
+        run: uv run --no-sync --no-build ruff format --check .
 
       - name: Mypy
-        run: uv run --no-sync mypy .
+        run: uv run --no-sync --no-build mypy .
 
       - name: Bandit
-        run: uv run --no-sync bandit -r . -x ./.venv,./tests -c pyproject.toml
+        run: uv run --no-sync --no-build bandit -r . -x ./.venv,./tests -c pyproject.toml
 
       # Sin base de datos ni data/: las pruebas inventan un catálogo y lo pasan
       # por export.build(), el mismo camino que siguen los datos reales.
       - name: Tests
-        run: uv run --no-sync pytest
+        run: uv run --no-sync --no-build pytest
 
   # La imagen debe construirse sola, sin los paquetes de la máquina.
   docker:
