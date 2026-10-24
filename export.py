@@ -15,6 +15,7 @@ Se ejecuta donde la base de datos es accesible:
 import datetime
 import fcntl
 import os
+import re
 import shutil
 import tempfile
 from collections import Counter
@@ -25,8 +26,9 @@ from typing import Any
 
 import polars as pl
 import psycopg
+from lingua import Language, LanguageDetectorBuilder
 
-from text import ENGLISH_MARKERS, SPANISH_MARKERS, is_content, words_expr
+from text import is_content, words_expr
 
 OUT = Path(__file__).parent / "data"
 CURRENT_YEAR = datetime.date.today().year
@@ -48,6 +50,17 @@ PG: dict[str, Any] = {
 KINDS = {"publication": "Artículo", "conference": "Congreso"}
 LEVELS = {"masters": "Maestría", "doctorate": "Doctorado"}
 COMMITTEE = "Comité tutorial"
+# Los títulos del CIC están en español o en inglés: con solo esos dos candidatos, Lingua
+# no confunde un título corto con otro idioma parecido.
+LANGUAGES = {Language.SPANISH: "es", Language.ENGLISH: "en"}
+# Una traducción al final, entre paréntesis o corchetes y de cuatro palabras o más, como en
+# "Geocodificación de microblogs (Geocoding of microblogs based on ontologies)". El idioma es
+# el de la parte original; un paréntesis corto o a media frase, como "(fuzzy controller)",
+# es del título.
+WORD_IN_BRACKETS = r"[^\s()\[\]]+"
+TRANSLATION = re.compile(
+    rf"\s*[(\[]\s*{WORD_IN_BRACKETS}(?:\s+{WORD_IN_BRACKETS}){{3,}}\s*[)\]]\s*$"
+)
 
 
 def query(sql: str) -> pl.DataFrame:
@@ -488,6 +501,31 @@ def documents(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     return {"docs": docs, "doc_labs": doc_labs, "doc_people": doc_people}
 
 
+def original_title(title: str) -> str:
+    """El título sin la traducción que a veces lleva al final."""
+    return TRANSLATION.sub("", title) or title
+
+
+def title_languages(titles: list[str]) -> list[str | None]:
+    """ "es" o "en" para cada título; None si no tiene con qué decidir, como "2023"."""
+    detector = LanguageDetectorBuilder.from_languages(*LANGUAGES).build()
+    found = detector.detect_languages_in_parallel_of([original_title(t) for t in titles])
+    return [LANGUAGES.get(language) if language else None for language in found]
+
+
+def title_language(docs: pl.DataFrame) -> pl.DataFrame:
+    """Títulos en inglés y títulos con idioma, por fuente y año."""
+    titled = docs.drop_nulls("title")
+    return (
+        titled.with_columns(
+            language=pl.Series(title_languages(titled["title"].to_list()), dtype=pl.String)
+        )
+        .drop_nulls("language")
+        .group_by("source", "year")
+        .agg(english=(pl.col("language") == "en").sum(), titles=pl.len())
+    )
+
+
 def term_tables(
     docs: pl.DataFrame,
     doc_labs: pl.DataFrame,
@@ -497,18 +535,6 @@ def term_tables(
 ) -> dict[str, pl.DataFrame]:
     """Conteos de títulos por término, nunca los títulos."""
     tokens = docs.select("doc_id", word=words_expr("title")).explode("word").drop_nulls("word")
-
-    language = (
-        tokens.group_by("doc_id")
-        .agg(
-            es=pl.col("word").is_in(list(SPANISH_MARKERS)).sum(),
-            en=pl.col("word").is_in(list(ENGLISH_MARKERS)).sum(),
-        )
-        .filter(pl.col("es") != pl.col("en"))
-        .join(docs, on="doc_id")
-        .group_by("source", "year")
-        .agg(english=(pl.col("en") > pl.col("es")).sum(), titles=pl.len())
-    )
 
     # Las palabras conservan su orden, así que las vecinas forman pares.
     content = tokens.filter(pl.col("word").map_elements(is_content, return_dtype=pl.Boolean))
@@ -570,7 +596,7 @@ def term_tables(
         "lab_titles": lab_titles,
         "person_titles": person_titles,
         "doc_year": docs.group_by("source", "year").agg(titles=pl.len()),
-        "language": language,
+        "language": title_language(docs),
         "signature": signature,
     }
 

@@ -17,11 +17,7 @@ STOPWORD_TEXT = """
     sin le este esta estos estas es son nuevo nueva nuevos nuevas
     me mi mis quiero quisiera gustaria trabajar tesis tema temas interesa interesan algo
 """
-SPANISH_TEXT = "de la el en y los las del para por con una que mediante"
-ENGLISH_TEXT = "the of and for in with on using to an based from"
 STOPWORDS = frozenset(STOPWORD_TEXT.split())
-SPANISH_MARKERS = frozenset(SPANISH_TEXT.split())
-ENGLISH_MARKERS = frozenset(ENGLISH_TEXT.split())
 WORD = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 
 
