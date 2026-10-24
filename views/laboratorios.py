@@ -17,6 +17,7 @@ from common import (
     lab_colors,
     load,
     show,
+    show_venues,
     sparkline_help,
     year_axis,
     year_range,
@@ -187,26 +188,8 @@ with tab_years:
         year_axis(fig, scoped["year"].unique().sort().to_list())
         show(fig)
 with tab_venues:
-    top_venues = (
-        load("venues")
-        .filter(pl.col("lab") == lab)
-        .group_by("venue")
-        .agg(pl.sum("outputs"), kind=pl.col("kind").sort_by("outputs").last())
-        .sort("outputs", descending=True)
-        .head(12)
-        .sort("outputs")
-    )
-    fig = px.bar(
-        top_venues,
-        x="outputs",
-        y="venue",
-        orientation="h",
-        color="kind",
-        color_discrete_map=KIND_COLORS,
-        labels=LABELS,
-    )
-    fig.update_layout(height=24 * top_venues.height + 100)
-    show(fig)
+    if not show_venues(load("venues").filter(pl.col("lab") == lab), 12):
+        st.info("Este laboratorio no tiene productos con revista o congreso registrado.")
 
 # --- Compare ----------------------------------------------------------------
 

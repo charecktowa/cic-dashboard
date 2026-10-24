@@ -497,3 +497,22 @@ def test_profile_lists_theses_by_role() -> None:
     markdown = " ".join(m.value for m in app.markdown)
     for title in directed["title"]:
         assert f"**{title.translate(MARKDOWN_SPECIAL)}**" in markdown
+
+
+@pytest.mark.usefixtures("tables")
+def test_lab_venues_stack_both_kinds() -> None:
+    import common
+
+    app = open_page("laboratorios")
+    lab = app.selectbox[0].value
+    venues = common.load("venues").filter(pl.col("lab") == lab)
+    bars = [
+        trace
+        for spec in chart_specs(app)
+        for trace in spec["data"]
+        if trace["type"] == "bar" and set(trace["y"]) <= set(venues["venue"])
+    ]
+    by_kind = dict(venues.group_by("kind").agg(pl.sum("outputs")).iter_rows())
+    assert len(by_kind) == 2, "el catálogo falso debe tener artículos y congresos"
+    # Pocas revistas en el catálogo falso: caben todas, así que suman todo por tipo.
+    assert {trace["name"]: sum(numbers(trace["x"])) for trace in bars} == by_kind

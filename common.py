@@ -7,6 +7,7 @@ import textwrap
 from pathlib import Path
 from typing import SupportsFloat, cast
 
+import plotly.express as px
 import polars as pl
 import streamlit as st
 
@@ -196,6 +197,42 @@ def show(fig, **kwargs):
         fig.update_yaxes(tickvals=list(categories), ticktext=[wrap(c) for c in categories])
         fig.update_layout(height=max(fig.layout.height or 0, WRAPPED_ROW * len(categories) + 100))
     return st.plotly_chart(fig, config=PLOT_CONFIG, width="stretch", **kwargs)
+
+
+def show_venues(rows: pl.DataFrame, n: int) -> int:
+    """Las `n` revistas o congresos con más productos, cada barra apilada por tipo.
+
+    `rows` trae venue, kind, outputs, first y last. Una misma serie, como Lecture Notes in
+    Computer Science, publica artículos y trabajos de congreso, así que se elige por el
+    total y se dibuja por tipo. Devuelve cuántas revistas dibujó: 0 si no hay ninguna.
+    """
+    top = (
+        rows.group_by("venue")
+        .agg(pl.sum("outputs"))
+        .sort("outputs", "venue", descending=[True, False])
+        .head(n)
+        .select("venue")
+    )
+    if top.is_empty():
+        return 0
+    fig = px.bar(
+        rows.join(top, on="venue"),
+        x="outputs",
+        y="venue",
+        color="kind",
+        orientation="h",
+        color_discrete_map=KIND_COLORS,
+        category_orders={"kind": list(KIND_COLORS)},
+        hover_data={"first": True, "last": True},
+        labels=LABELS,
+    )
+    fig.update_yaxes(categoryorder="total ascending")
+    fig.update_layout(
+        height=24 * top.height + 120,
+        legend={"orientation": "h", "y": 1.02, "yanchor": "bottom"},
+    )
+    show(fig)
+    return top.height
 
 
 def year_axis(fig, years: list[int]) -> None:
