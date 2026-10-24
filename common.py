@@ -69,6 +69,7 @@ ALL_LABS = "Todos los laboratorios"
 YEAR_TICKS = 20
 AUTHOR = "Andrea Gutiérrez"
 AUTHOR_URL = "https://github.com/charecktowa"
+REPO_URL = "https://github.com/charecktowa/cic-dashboard"
 # El aviso del sitio del CIC pide citar la fuente completa y su dirección electrónica.
 SOURCE = "Centro de Investigación en Computación (CIC) del Instituto Politécnico Nacional"
 SOURCE_URL = "https://www.cic.ipn.mx"
