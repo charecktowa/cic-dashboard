@@ -2,21 +2,24 @@
 
 Dos pasos, ambos en tu máquina (el VPS nunca llama a OpenAlex):
 
-    uv run python openalex.py match   # propone un autor de OpenAlex por persona
+    uv run --env-file .env python openalex.py match   # propone un autor por persona
     # revisa openalex_authors.csv a mano: corrige ids, borra los que no son
-    uv run python openalex.py fetch   # trae métricas y trabajos de los ids revisados
+    uv run --env-file .env python openalex.py fetch   # métricas y trabajos de los revisados
 
-Los datos de OpenAlex son CC0 (dominio público). Con OPENALEX_API_KEY en el entorno el
+Los datos de OpenAlex son CC0 (dominio público). Con OPENALEX_API_KEY en .env el
 presupuesto diario es mayor; sin ella también alcanza para unas decenas de personas.
 """
 
 import csv
+import http.client
 import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -34,24 +37,61 @@ TOP_WORKS = 25
 HIDDEN_TYPES = ("dissertation",)
 IPN_NAMES = ("instituto politecnico nacional", "national polytechnic institute")
 FIELDS = ["person", "openalex_ids", "display_name", "works_count", "institution", "status"]
+# Estado de una fila revisada a mano: match la respeta.
+REVIEWED = "corregido"
+# Una llamada cada 0.2 s: lejos del límite de OpenAlex (10 por segundo sin llave, 30 con ella).
+MIN_INTERVAL = 0.2
+# Esperas antes de cada reintento; si el último también falla, el error se propaga.
+BACKOFF = (1, 2, 4, 8)
+# Demasiado rápido (429) o una falla pasajera del servidor: vale la pena reintentar.
+RETRY_CODES = {429, 500, 502, 503, 504}
+# Sin red un momento, o la conexión se corta a media respuesta: también se reintenta.
+TRANSIENT_ERRORS = (
+    urllib.error.URLError,
+    http.client.IncompleteRead,
+    TimeoutError,
+    ConnectionError,
+)
+last_request = 0.0
 
 
 def get(path: str, **params: str | int) -> dict[str, Any]:
-    """Una llamada a la API de OpenAlex, con la llave si está en el entorno."""
+    """Una llamada a la API de OpenAlex, con la llave si está en el entorno.
+
+    La llave va en la cabecera y no en la URL: un error o un log muestran la URL. Las
+    fallas pasajeras se reintentan con esperas crecientes (BACKOFF).
+    """
     key = os.environ.get("OPENALEX_API_KEY")
-    query = {**params, **({"api_key": key} if key else {})}
-    url = f"{API}{path}?{urllib.parse.urlencode(query)}"
-    request = urllib.request.Request(url, headers={"User-Agent": "cic-dashboard"})
-    for attempt in range(3):
+    headers = {"User-Agent": "cic-dashboard", **({"Authorization": f"Bearer {key}"} if key else {})}
+    url = f"{API}{path}?{urllib.parse.urlencode(params)}"
+    request = urllib.request.Request(url, headers=headers)
+    for delay in BACKOFF:
         try:
-            # La URL siempre empieza con la constante API (https), nunca con file:// u otro.
-            with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
-                return json.load(response)
+            return fetch_json(request)
         except urllib.error.HTTPError as error:
-            if error.code != 429 or attempt == 2:
+            if error.code not in RETRY_CODES:
                 raise
-            time.sleep(2**attempt)
-    raise RuntimeError("unreachable")
+            if error.code == 429 and error.headers.get("X-RateLimit-Remaining") == "0":
+                raise SystemExit(
+                    "Se acabó el presupuesto diario de OpenAlex; se renueva a medianoche UTC. "
+                    "Una llave gratuita en OPENALEX_API_KEY lo multiplica."
+                ) from error
+        except TRANSIENT_ERRORS:
+            pass
+        time.sleep(delay)
+    return fetch_json(request)
+
+
+def fetch_json(request: urllib.request.Request) -> dict[str, Any]:
+    """Manda la petición respetando MIN_INTERVAL desde la anterior."""
+    global last_request
+    pause = last_request + MIN_INTERVAL - time.monotonic()
+    if pause > 0:
+        time.sleep(pause)
+    last_request = time.monotonic()
+    # La URL siempre empieza con la constante API (https), nunca con file:// u otro.
+    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
+        return json.load(response)
 
 
 def is_ipn(author: dict[str, Any]) -> bool:
@@ -74,54 +114,93 @@ def name_score(person: str, author: dict[str, Any]) -> float:
 
 
 def match() -> None:
-    """Propone, para cada persona investigadora del CIC, su autor más probable en OpenAlex."""
+    """Propone, para cada persona investigadora del CIC, su autor más probable en OpenAlex.
+
+    Las filas marcadas a mano como `corregido` se conservan tal cual y no se vuelven a
+    buscar: volver a correr match no deshace una corrección.
+    """
     people = pl.read_parquet(DATA / "people.parquet").drop_nulls("lab")["person"].to_list()
-    rows = []
-    for person in sorted(people):
-        candidates = get("/authors", search=person, per_page=10)["results"]
-        scored = sorted(
-            candidates,
-            key=lambda a: (is_ipn(a), name_score(person, a), a.get("works_count", 0)),
-            reverse=True,
-        )
-        best = scored[0] if scored else None
-        if best is None:
-            rows.append({"person": person, "status": "sin coincidencia"})
-            continue
-        institution = (best.get("last_known_institutions") or [{}])[0].get("display_name", "")
-        confident = is_ipn(best) and name_score(person, best) >= 0.75
-        rows.append(
-            {
-                "person": person,
-                "openalex_ids": best["id"].rsplit("/", 1)[-1],
-                "display_name": best.get("display_name", ""),
-                "works_count": best.get("works_count", 0),
-                "institution": institution,
-                "status": "auto" if confident else "revisar",
-            }
-        )
+    rows = [row for row in read_mapping() if row["status"] == REVIEWED]
+    reviewed = {row["person"] for row in rows}
+    for person in sorted(set(people) - reviewed):
+        rows.append(propose(person))
         print(f"{rows[-1]['status']:>16}  {person}  →  {rows[-1].get('display_name', '')}")
-    # Dos personas del CIC con el mismo autor de OpenAlex: al menos una está mal.
-    ids = [row.get("openalex_ids") for row in rows]
+    # Dos personas del CIC con un mismo autor de OpenAlex: al menos una está mal. Una fila
+    # puede llevar varios ids, así que se cuentan uno por uno.
+    claims = Counter(author_id for row in rows for author_id in set(split_ids(row)))
     for row in rows:
-        if row.get("openalex_ids") and ids.count(row["openalex_ids"]) > 1:
+        if row["status"] != REVIEWED and any(claims[i] > 1 for i in split_ids(row)):
             row["status"] = "revisar"
     with MAPPING.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDS)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(sorted(rows, key=lambda row: row["person"]))
     print(f"\nRevisa {MAPPING.name}: corrige los ids marcados como 'revisar' y borra los erróneos.")
 
 
+def propose(person: str) -> dict[str, Any]:
+    """El autor de OpenAlex más probable para una persona, como fila del CSV."""
+    candidates = get("/authors", search=person, per_page=10)["results"]
+    scored = sorted(
+        candidates,
+        key=lambda a: (is_ipn(a), name_score(person, a), a.get("works_count", 0)),
+        reverse=True,
+    )
+    if not scored:
+        return {"person": person, "status": "sin coincidencia"}
+    best = scored[0]
+    institution = (best.get("last_known_institutions") or [{}])[0].get("display_name", "")
+    confident = is_ipn(best) and name_score(person, best) >= 0.75
+    return {
+        "person": person,
+        "openalex_ids": best["id"].rsplit("/", 1)[-1],
+        "display_name": best.get("display_name", ""),
+        "works_count": best.get("works_count", 0),
+        "institution": institution,
+        "status": "auto" if confident else "revisar",
+    }
+
+
+def split_ids(row: dict[str, Any]) -> list[str]:
+    """Los ids de OpenAlex de una fila: una persona partida en varios perfiles lleva "A1|A2"."""
+    return [i.strip() for i in (row.get("openalex_ids") or "").split("|") if i.strip()]
+
+
+def read_mapping() -> list[dict[str, str]]:
+    """Las filas de openalex_authors.csv; ninguna si todavía no existe."""
+    if not MAPPING.exists():
+        return []
+    with MAPPING.open(newline="") as file:
+        return list(csv.DictReader(file))
+
+
+def works_filter(ids: list[str]) -> str:
+    """Los trabajos de estos autores de OpenAlex, sin los tipos ocultos (tesis)."""
+    return f"author.id:{'|'.join(ids)}" + "".join(f",type:!{t}" for t in HIDDEN_TYPES)
+
+
+def venue_counts(person: str, ids: list[str]) -> list[dict[str, Any]]:
+    """Todos sus trabajos por revista o congreso, no solo los más citados.
+
+    Una sola consulta agrupada trae hasta 200 revistas, de la que más trabajos tiene a la
+    que menos. Los trabajos sin revista no forman grupo y no cuentan.
+    """
+    groups = get("/works", filter=works_filter(ids), group_by="primary_location.source.id")
+    return [
+        {"person": person, "venue": group["key_display_name"], "works": group["count"]}
+        for group in groups["group_by"]
+        if group["key_display_name"]
+    ]
+
+
 def fetch() -> None:
-    """Métricas, citas por año y trabajos más citados de los autores revisados."""
-    with MAPPING.open() as file:
-        mapping = [row for row in csv.DictReader(file) if row["openalex_ids"].strip()]
-    authors, years, works = [], [], []
+    """Métricas, citas por año, revistas y trabajos más citados de los autores revisados."""
+    mapping = [row for row in read_mapping() if row["openalex_ids"].strip()]
+    authors, years, works, venues = [], [], [], []
     for row in mapping:
         person = row["person"]
         # Una persona puede estar partida en varios perfiles de OpenAlex: se suman.
-        ids = [i.strip() for i in row["openalex_ids"].split("|") if i.strip()]
+        ids = split_ids(row)
         profiles = [get(f"/authors/{author_id}") for author_id in ids]
         stats = [p.get("summary_stats") or {} for p in profiles]
         topics = [t["display_name"] for p in profiles for t in (p.get("topics") or [])[:5]]
@@ -147,9 +226,10 @@ def fetch() -> None:
                         "citations": year.get("cited_by_count", 0),
                     }
                 )
+        venues += venue_counts(person, ids)
         listed = get(
             "/works",
-            filter=f"author.id:{'|'.join(ids)}" + "".join(f",type:!{t}" for t in HIDDEN_TYPES),
+            filter=works_filter(ids),
             sort="cited_by_count:desc",
             per_page=TOP_WORKS,
             select="title,publication_year,type,doi,cited_by_count,open_access,primary_location",
@@ -175,6 +255,9 @@ def fetch() -> None:
         DATA / "openalex_years.parquet"
     )
     pl.DataFrame(works).write_parquet(DATA / "openalex_works.parquet")
+    pl.DataFrame(
+        venues, schema={"person": pl.String, "venue": pl.String, "works": pl.Int64}
+    ).write_parquet(DATA / "openalex_venues.parquet")
     print(f"\n{len(authors)} perfiles de OpenAlex escritos en {DATA}")
 
 

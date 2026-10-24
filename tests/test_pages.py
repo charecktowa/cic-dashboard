@@ -402,3 +402,24 @@ def test_long_axis_labels_fit_in_two_lines() -> None:
     assert len(lines) == 2
     assert all(len(line) <= common.WRAP_AT for line in lines)
     assert lines[-1].endswith("…")
+
+
+@pytest.mark.usefixtures("tables")
+@pytest.mark.parametrize("person", ["Persona 1", "Persona 2"])
+def test_profile_shows_openalex_venues_when_linked(person: str) -> None:
+    import common
+
+    expected = common.load("openalex_venues").filter(pl.col("person") == person)
+    charts = [
+        trace
+        for spec in chart_specs(render_profile_app(person))
+        for trace in spec["data"]
+        if trace.get("hovertemplate", "").startswith("Trabajos en OpenAlex")
+    ]
+    if expected.is_empty():
+        assert not charts
+    else:
+        (bars,) = charts
+        assert dict(zip(bars["y"], numbers(bars["x"]), strict=True)) == dict(
+            expected.select("venue", "works").iter_rows()
+        )

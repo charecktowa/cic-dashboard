@@ -186,3 +186,6 @@ def write_fake_openalex() -> None:
             "is_oa": [True, False, False],
         }
     ).write_parquet(FAKE_DATA / "openalex_works.parquet")
+    pl.DataFrame(
+        {"person": ["Persona 1"] * 2, "venue": ["IEEE Access", "arXiv"], "works": [9, 4]}
+    ).write_parquet(FAKE_DATA / "openalex_venues.parquet")

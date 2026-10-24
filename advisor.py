@@ -126,8 +126,9 @@ def render_profile(person: str) -> None:
         """
 - **¿A qué dedica su trabajo?** compara artículos en revista, trabajos en congreso, tesis que
   dirige (como Director 1 o 2), comités tutoriales y proyectos.
-- **Dónde publica**: revistas y congresos de sus artículos en el catálogo del CIC; las
-  variantes de escritura de un mismo nombre se cuentan juntas.
+- **Dónde publica**: revistas y congresos de sus artículos en el catálogo del CIC (las
+  variantes de escritura de un mismo nombre se cuentan juntas) y de todos sus trabajos en
+  OpenAlex, sin tesis.
 - **Temas característicos**: términos de los títulos de sus tesis dirigidas, artículos,
   congresos y proyectos que esta persona usa más que el promedio del CIC.
 - **Con quién coincide**: personas que participaron en las mismas tesis, como directores o
@@ -240,6 +241,14 @@ def render_by_year(person: str, per_year: pl.DataFrame) -> None:
 
 
 def render_venues(person: str) -> None:
+    """Dónde publica, según el catálogo del CIC y según OpenAlex."""
+    st.markdown("**Según el catálogo del CIC**")
+    render_catalog_venues(person)
+    st.markdown("**Según OpenAlex**")
+    render_openalex_venues(person)
+
+
+def render_catalog_venues(person: str) -> None:
     """Las revistas y congresos donde más publica, según el catálogo del CIC."""
     venues = load_optional("person_venues")
     if venues is None:
@@ -278,6 +287,42 @@ def render_venues(person: str) -> None:
     st.caption(
         f"Sus {top.height} revistas y congresos con más productos en el catálogo del CIC. "
         "Pasa el cursor sobre una barra para ver su primer y último año."
+    )
+
+
+def render_openalex_venues(person: str) -> None:
+    """Las revistas y congresos con más de sus trabajos en OpenAlex."""
+    venues = load_optional("openalex_venues")
+    top = (
+        venues.filter(pl.col("person") == person)
+        .group_by("venue")
+        .agg(pl.sum("works"))
+        .sort("works", "venue", descending=[True, False])
+        .head(VENUES_SHOWN)
+        if venues is not None
+        else None
+    )
+    if top is None or top.is_empty():
+        st.caption(
+            "Sin revistas de OpenAlex: esta persona no tiene un perfil vinculado, o la "
+            "instantánea de datos todavía no las incluye."
+        )
+        return
+    fig = px.bar(
+        top,
+        x="works",
+        y="venue",
+        orientation="h",
+        color_discrete_sequence=[PURPLE],
+        labels={**LABELS, "works": "Trabajos en OpenAlex"},
+    )
+    fig.update_yaxes(categoryorder="total ascending")
+    fig.update_layout(height=24 * top.height + 100)
+    show(fig)
+    st.caption(
+        f"Sus {top.height} revistas y congresos con más trabajos en "
+        f"[OpenAlex]({OPENALEX_URL}) (CC0), sin tesis. OpenAlex cuenta todo lo que tiene "
+        "indexado, incluidos preprints como arXiv, así que puede diferir del catálogo del CIC."
     )
 
 

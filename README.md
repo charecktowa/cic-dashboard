@@ -64,14 +64,17 @@ El grupo `export` añade `psycopg`; la app no lo necesita y la imagen no lo inst
 ## 1b. Métricas y publicaciones de OpenAlex (opcional)
 
 `openalex.py` vincula a cada persona investigadora con su perfil de
-[OpenAlex](https://openalex.org) y trae citas, índice h, citas por año y sus trabajos más
-citados. Los datos de OpenAlex son de dominio público (CC0). Corre en tu máquina, después de
+[OpenAlex](https://openalex.org) y trae citas, índice h, citas por año, en qué revistas y
+congresos publica y sus trabajos más citados. Los datos de OpenAlex son de dominio público (CC0). Corre en tu máquina, después de
 `export.py`; el VPS nunca llama a OpenAlex.
 
+Si tienes una [llave gratuita de OpenAlex](https://openalex.org/settings/api-key), ponla en
+`OPENALEX_API_KEY` dentro de `.env`: es opcional y multiplica el presupuesto diario. Se manda
+en la cabecera `Authorization`, nunca en la URL.
+
 ```bash
-export OPENALEX_API_KEY=...      # opcional: la llave gratuita multiplica el presupuesto diario
-uv run python openalex.py match  # propone un autor de OpenAlex por persona
-uv run python openalex.py fetch  # trae métricas y trabajos de los autores revisados
+uv run --env-file .env python openalex.py match  # propone un autor de OpenAlex por persona
+uv run --env-file .env python openalex.py fetch  # trae métricas y trabajos de los revisados
 ```
 
 `match` escribe `openalex_authors.csv` con una columna `status`:
@@ -96,8 +99,11 @@ uv run streamlit run app.py
 ### Copiar el proyecto y los datos
 
 ```bash
-rsync -av --exclude .venv --exclude .git --exclude __pycache__ ./ vps:~/cic-dashboard/
+rsync -av --exclude .venv --exclude .git --exclude __pycache__ --exclude .env ./ vps:~/cic-dashboard/
 ```
+
+Tu `.env` local no se copia: lleva la contraseña de Postgres y la llave de OpenAlex, que el
+VPS no necesita.
 
 ### Conectar con Nginx Proxy Manager
 
@@ -108,8 +114,8 @@ llega por nombre. Busca cómo se llama esa red en el VPS:
 docker network ls
 ```
 
-Si no es `npm_default`, crea un `.env` a partir de `.env.example` con el nombre correcto, y
-levanta el servicio:
+Si no es `npm_default`, crea en el VPS un `.env` que solo lleve `PROXY_NETWORK` con el nombre
+correcto (el resto de `.env.example` es para tu máquina), y levanta el servicio:
 
 ```bash
 docker compose up -d --build
