@@ -325,7 +325,9 @@ def test_standing_explains_why_externals_are_not_ranked() -> None:
     assert not external.is_empty(), "el catálogo falso debe tener una persona externa"
     app = render_profile_app(external[0])
     assert any("participa como externa" in c.value for c in app.caption)
-    assert not any("#" in m.value for m in app.metric)
+    # Solo las tarjetas de siempre: ni lugares en el CIC ni la gráfica de publicar vs. dirigir.
+    assert len(app.metric) == 5
+    assert not [spec for spec in chart_specs(app) if spec["data"][0]["type"] == "scatter"]
 
 
 def profile_links(app: AppTest) -> list[str]:
