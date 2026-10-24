@@ -21,8 +21,10 @@ dev = [
     "pytest>=9",
     "ruff>=0.17.2",
 ]
-# Solo la máquina que construye la instantánea habla con Postgres; el VPS no.
+# Solo la máquina que construye la instantánea habla con Postgres y clasifica el idioma
+# de cada título; el VPS no instala ninguno de los dos.
 export = [
+    "lingua-language-detector>=2.1",
     "psycopg[binary]>=3.3.6",
 ]
 
