@@ -99,8 +99,11 @@ uv run streamlit run app.py
 ### Copiar el proyecto y los datos
 
 ```bash
-rsync -av --exclude .venv --exclude .git --exclude __pycache__ ./ vps:~/cic-dashboard/
+rsync -av --exclude .venv --exclude .git --exclude __pycache__ --exclude .env ./ vps:~/cic-dashboard/
 ```
+
+Tu `.env` local no se copia: lleva la contraseña de Postgres y la llave de OpenAlex, que el
+VPS no necesita.
 
 ### Conectar con Nginx Proxy Manager
 
@@ -111,8 +114,8 @@ llega por nombre. Busca cómo se llama esa red en el VPS:
 docker network ls
 ```
 
-Si no es `npm_default`, crea un `.env` a partir de `.env.example` con el nombre correcto, y
-levanta el servicio:
+Si no es `npm_default`, crea en el VPS un `.env` que solo lleve `PROXY_NETWORK` con el nombre
+correcto (el resto de `.env.example` es para tu máquina), y levanta el servicio:
 
 ```bash
 docker compose up -d --build
