@@ -341,3 +341,16 @@ def test_venue_spellings_share_a_key() -> None:
     # Se muestra con la forma más frecuente.
     shown = names.filter(pl.col("venue_key") == keys[0])["venue"][0]
     assert shown == "Journal of Intelligent & Fuzzy Systems"
+
+
+def test_export_without_password_says_where_to_put_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(export.PG, "password", None)
+    monkeypatch.setitem(export.PG, "dbname", "otra_base")
+    with pytest.raises(SystemExit) as stop:
+        export.main()
+    message = str(stop.value)
+    # Dónde va la contraseña, cómo cargarla y de qué base: la que está configurada.
+    assert "escribe ahí la contraseña" in message
+    assert "a .env" in message
+    assert "--env-file .env" in message
+    assert "tu base otra_base" in message

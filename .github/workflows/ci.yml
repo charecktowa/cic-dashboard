@@ -18,6 +18,8 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    # Tarda menos de un minuto; un runner atorado falla aquí y no a las 6 horas por omisión.
+    timeout-minutes: 10
     steps:
       - name: Checkout
         # Fijada a un commit y no a una etiqueta: una etiqueta se puede mover.
@@ -58,6 +60,7 @@ jobs:
   # La imagen debe construirse sola, sin los paquetes de la máquina.
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

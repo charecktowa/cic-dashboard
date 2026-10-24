@@ -752,7 +752,11 @@ def write(tables: dict[str, pl.DataFrame], out: Path) -> None:
 
 def main() -> None:
     if not PG["password"]:
-        raise SystemExit("Falta POSTGRES_PASSWORD: cópiala de .env.example a .env (ver README).")
+        raise SystemExit(
+            "Falta POSTGRES_PASSWORD. Copia .env.example a .env, escribe ahí la contraseña de "
+            f"tu base {PG['dbname']} y corre con `uv run --env-file .env --group export python "
+            "export.py` (ver README)."
+        )
     with export_lock(OUT):
         tables = build(load())
         write(tables, OUT)
