@@ -416,12 +416,25 @@ def test_language_counts_every_title_once() -> None:
                 None,
             ],
             "year": [2020, 2020, None, None, None],
+            "level": [None, None, "Maestría", "Doctorado", "Doctorado"],
         },
         schema_overrides={"year": pl.Int32},
     )
     language = export.title_language(docs).sort("source")
     # Los títulos sin idioma (sin letras o vacíos) no se cuentan.
-    assert language.select("source", "english", "titles").rows() == [
-        ("Artículo", 1, 2),
-        ("Tesis", 0, 1),
+    assert language.select("source", "level", "english", "titles").rows() == [
+        ("Artículo", None, 1, 2),
+        ("Tesis", "Maestría", 0, 1),
     ]
+
+
+def test_language_splits_theses_by_level(
+    tables: dict[str, pl.DataFrame], catalog: dict[str, pl.DataFrame]
+) -> None:
+    language = tables["language"]
+    # Solo las tesis tienen nivel, y cada nivel suma sus tesis del catálogo.
+    assert language.filter(pl.col("level").is_not_null())["source"].unique().to_list() == ["Tesis"]
+    theses = language.filter(pl.col("source") == "Tesis")
+    counted = dict(theses.group_by("level").agg(pl.sum("titles")).iter_rows())
+    expected = dict(catalog["theses"].group_by("level").agg(pl.len()).iter_rows())
+    assert counted == expected

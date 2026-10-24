@@ -461,18 +461,21 @@ def documents(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
                 source=pl.lit("Tesis"),
                 title="title",
                 year=pl.lit(None, dtype=pl.Int32),
+                level="level",
             ),
             d["outputs"].select(
                 doc_id=pl.format("output-{}", "product_id"),
                 source="kind",
                 title="title",
                 year=pl.col("year").cast(pl.Int32),
+                level=pl.lit(None, dtype=pl.String),
             ),
             d["projects"].select(
                 doc_id=pl.format("project-{}", "project_id"),
                 source=pl.lit("Proyecto"),
                 title="title",
                 year=pl.col("year").cast(pl.Int32),
+                level=pl.lit(None, dtype=pl.String),
             ),
         ]
     )
@@ -514,14 +517,14 @@ def title_languages(titles: list[str]) -> list[str | None]:
 
 
 def title_language(docs: pl.DataFrame) -> pl.DataFrame:
-    """Títulos en inglés y títulos con idioma, por fuente y año."""
+    """Títulos en inglés y títulos con idioma, por fuente, año y nivel (solo las tesis)."""
     titled = docs.drop_nulls("title")
     return (
         titled.with_columns(
             language=pl.Series(title_languages(titled["title"].to_list()), dtype=pl.String)
         )
         .drop_nulls("language")
-        .group_by("source", "year")
+        .group_by("source", "year", "level")
         .agg(english=(pl.col("language") == "en").sum(), titles=pl.len())
     )
 
