@@ -83,7 +83,7 @@ def project_lines(projects: pl.DataFrame) -> list[str]:
     for project in projects.iter_rows(named=True):
         parts = [f"**{project['title'].translate(MARKDOWN_SPECIAL)}**", year_span(project["years"])]
         if project["role"] != "Indefinido":
-            parts.append(project["role"])
+            parts.append(project["role"].translate(MARKDOWN_SPECIAL))
         lines.append("- " + " · ".join(parts))
     return lines
 

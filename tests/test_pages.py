@@ -443,3 +443,19 @@ def test_profile_lists_every_project() -> None:
     markdown = " ".join(m.value for m in render_profile_app("Persona 1").markdown)
     for title in titles:
         assert f"**{title.translate(MARKDOWN_SPECIAL)}**" in markdown
+
+
+def test_project_lines_escape_markdown() -> None:
+    from advisor import project_lines
+
+    projects = pl.DataFrame(
+        {
+            "title": ["Un *título*"],
+            "years": [[2024]],
+            "role": ["[Responsable](https://ejemplo.test)"],
+        }
+    )
+    (line,) = project_lines(projects)
+    # Ni el título ni el rol pueden volverse formato o un enlace.
+    assert "](" not in line
+    assert line == r"- **Un \*título\*** · 2024 · \[Responsable\]\(https://ejemplo\.test\)"
