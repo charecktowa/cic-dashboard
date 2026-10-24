@@ -11,6 +11,7 @@ presupuesto diario es mayor; sin ella también alcanza para unas decenas de pers
 """
 
 import csv
+import http.client
 import json
 import os
 import sys
@@ -44,6 +45,13 @@ MIN_INTERVAL = 0.2
 BACKOFF = (1, 2, 4, 8)
 # Demasiado rápido (429) o una falla pasajera del servidor: vale la pena reintentar.
 RETRY_CODES = {429, 500, 502, 503, 504}
+# Sin red un momento, o la conexión se corta a media respuesta: también se reintenta.
+TRANSIENT_ERRORS = (
+    urllib.error.URLError,
+    http.client.IncompleteRead,
+    TimeoutError,
+    ConnectionError,
+)
 last_request = 0.0
 
 
@@ -68,8 +76,8 @@ def get(path: str, **params: str | int) -> dict[str, Any]:
                     "Se acabó el presupuesto diario de OpenAlex; se renueva a medianoche UTC. "
                     "Una llave gratuita en OPENALEX_API_KEY lo multiplica."
                 ) from error
-        except urllib.error.URLError:
-            pass  # Sin red un momento: se reintenta igual.
+        except TRANSIENT_ERRORS:
+            pass
         time.sleep(delay)
     return fetch_json(request)
 

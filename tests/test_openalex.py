@@ -1,6 +1,7 @@
 """openalex.py habla con la API sin red: urlopen se reemplaza por respuestas fijas."""
 
 import email.message
+import http.client
 import io
 import json
 import urllib.error
@@ -71,7 +72,16 @@ def test_without_a_key_there_is_no_authorization(
 
 
 @pytest.mark.parametrize(
-    "failure", [http_error(429), http_error(503), urllib.error.URLError("sin red")]
+    "failure",
+    [
+        http_error(429),
+        http_error(503),
+        urllib.error.URLError("sin red"),
+        # La conexión se corta o se queda callada a media respuesta.
+        http.client.IncompleteRead(b"{"),
+        TimeoutError("lectura"),
+        ConnectionResetError("cortada"),
+    ],
 )
 def test_passing_failures_are_retried(api: FakeApi, failure: Exception) -> None:
     api.replies = [failure, {"results": []}]
