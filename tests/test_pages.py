@@ -192,3 +192,32 @@ def test_every_lab_keeps_its_color(page: str) -> None:
     for trace in by_lab:
         drawn = trace.get("marker", {}).get("color") or trace.get("line", {}).get("color")
         assert drawn == colors[trace["name"]], (page, trace["name"])
+
+
+def test_every_year_fills_the_gaps_with_zero() -> None:
+    import common
+
+    totals = pl.DataFrame({"year": [2020, 2023, 2021], "outputs": [4, 1, 2]})
+    filled = common.every_year(totals, "outputs")
+    assert filled["year"].to_list() == [2020, 2021, 2022, 2023]
+    assert filled["outputs"].to_list() == [4, 2, 0, 1]
+    assert common.every_year(totals.clear(), "outputs").is_empty()
+
+
+@pytest.mark.usefixtures("tables")
+def test_profile_sparkline_has_one_bar_per_year() -> None:
+    import common
+
+    years = common.load("person_year").filter(pl.col("person") == "Persona 9")["year"]
+    first, last = int(common.number(years.min())), int(common.number(years.max()))
+    span = last - first + 1
+    assert years.n_unique() < span, "el catálogo falso debe tener un año sin productos"
+    script = """
+import streamlit as st
+from advisor import render_profile
+render_profile('Persona 9')
+"""
+    app = AppTest.from_string(script, default_timeout=60).run()
+    card = next(m for m in app.metric if m.label == "Productos")
+    assert len(card.proto.chart_data) == span
+    assert f"de {first} a {last}" in card.proto.help

@@ -222,6 +222,31 @@ def year_range(years: pl.Series, key: str) -> tuple[int, int]:
     return first, last
 
 
+def every_year(totals: pl.DataFrame, column: str) -> pl.DataFrame:
+    """Los totales de `column` por año, con los años sin nada en cero.
+
+    Una gráfica sin eje, como la miniatura de una tarjeta, pegaría dos años separados por
+    un hueco y parecerían seguidos.
+    """
+    if totals.is_empty():
+        return totals
+    first, last = int(number(totals["year"].min())), int(number(totals["year"].max()))
+    years = pl.DataFrame({"year": range(first, last + 1)}, schema={"year": totals.schema["year"]})
+    return (
+        years.join(totals.select("year", column), on="year", how="left")
+        .with_columns(pl.col(column).fill_null(0))
+        .sort("year")
+    )
+
+
+def sparkline_help(per_year: pl.DataFrame) -> str | None:
+    """Qué años cubre la miniatura de una tarjeta, que no tiene eje."""
+    if per_year.is_empty():
+        return None
+    first, last = int(number(per_year["year"].min())), int(number(per_year["year"].max()))
+    return f"Un valor por año, de {first} a {last}. Los años sin productos cuentan como cero."
+
+
 def explain(markdown: str, label: str = "¿Cómo se calcula?") -> None:
     with st.expander(label, icon=":material/help:"):
         st.markdown(markdown)

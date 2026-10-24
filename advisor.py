@@ -15,10 +15,12 @@ from common import (
     TEAL,
     TEAL_SCALE,
     distinctive,
+    every_year,
     explain,
     load,
     load_optional,
     show,
+    sparkline_help,
     year_axis,
     year_range,
 )
@@ -82,7 +84,7 @@ def render_profile(person: str) -> None:
     """Cifras, tipos de trabajo, producción por año, temas y colaboración de una persona."""
     profile = load("people").filter(pl.col("person") == person).row(0, named=True)
     per_year = load("person_year").filter(pl.col("person") == person)
-    sparkline = per_year.group_by("year").agg(pl.sum("outputs")).sort("year")["outputs"].to_list()
+    sparkline = every_year(per_year.group_by("year").agg(pl.sum("outputs")), "outputs")
 
     st.caption(profile["lab"] or "Sin laboratorio en el CIC (participa como persona externa)")
     with st.container(horizontal=True, gap="small"):
@@ -96,8 +98,9 @@ def render_profile(person: str) -> None:
             delta_color="off",
             delta_arrow="off",
             border=True,
-            chart_data=sparkline or None,
+            chart_data=sparkline["outputs"].to_list() or None,
             chart_type="bar",
+            help=sparkline_help(sparkline),
         )
         st.metric(
             "Proyectos",

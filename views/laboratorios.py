@@ -9,12 +9,14 @@ from common import (
     LABELS,
     TEAL,
     TEAL_SCALE,
+    every_year,
     explain,
     fmt_share,
     footer,
     lab_colors,
     load,
     show,
+    sparkline_help,
     year_axis,
     year_range,
 )
@@ -82,8 +84,8 @@ explain(
 st.subheader("Perfil de un laboratorio")
 lab = st.selectbox("Laboratorio", ranked["lab"].to_list(), help="Ordenados según el ranking.")
 row = lab_stats.filter(pl.col("lab") == lab).row(0, named=True)
-lab_years = (
-    outputs.filter(pl.col("lab") == lab).group_by("year").agg(pl.sum("outputs")).sort("year")
+lab_years = every_year(
+    outputs.filter(pl.col("lab") == lab).group_by("year").agg(pl.sum("outputs")), "outputs"
 )
 
 cols = st.columns(4)
@@ -105,6 +107,7 @@ cols[2].metric(
     border=True,
     chart_data=lab_years["outputs"].to_list(),
     chart_type="area",
+    help=sparkline_help(lab_years),
 )
 cols[3].metric("Proyectos", f"{row['projects']:,}", border=True)
 
