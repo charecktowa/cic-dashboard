@@ -1,6 +1,7 @@
 """La instantánea es lo único que se publica, así que se revisa qué contiene."""
 
 import datetime
+from collections import Counter
 from pathlib import Path
 
 import polars as pl
@@ -25,11 +26,11 @@ def test_only_staff_titles_are_published(
     assert theses and projects
     assert not theses & (products | projects)
     assert not products & projects
-    allowed = {"output_titles": products, "project_titles": projects}
+    allowed = {"output_titles": products, "project_titles": projects, "thesis_titles": theses}
     for name, frame in tables.items():
         assert "title" not in frame.columns or name in allowed, name
-        # Los títulos de tesis nunca salen; los de proyectos, solo en project_titles.
-        hidden = theses | (set() if name == "project_titles" else projects)
+        # Los títulos de tesis y de proyectos solo salen en su propia tabla.
+        hidden = (theses | projects) - allowed.get(name, set())
         for column in frame.select(pl.col(pl.String)).columns:
             leaked = hidden & set(frame[column].drop_nulls())
             assert not leaked, f"{name}.{column} publica un título oculto"
@@ -248,3 +249,72 @@ def test_project_titles_group_each_project_once() -> None:
         },
         {"person": "Ana López", "title": "Robots móviles", "years": [], "role": "Indefinido"},
     ]
+
+
+def test_thesis_titles_name_only_people_on_the_dashboard(
+    catalog: dict[str, pl.DataFrame], tables: dict[str, pl.DataFrame]
+) -> None:
+    theses = tables["thesis_titles"]
+    # Ni alumno ni ids: si alguien agrega una columna, esta prueba obliga a revisarla.
+    assert set(theses.columns) == {
+        "title",
+        "level",
+        "lab",
+        "director_1",
+        "director_2",
+        "committee",
+        "others",
+    }
+    assert theses.height == catalog["theses"].height
+    shown = set(tables["people"]["person"])
+    named = (
+        set(theses["director_1"].drop_nulls())
+        | set(theses["director_2"].drop_nulls())
+        | set(theses["committee"].explode().drop_nulls())
+    )
+    assert named <= shown
+    # Quien participó sin estar en el tablero se cuenta, no se nombra.
+    hidden = set(catalog["people"]["person"]) - shown
+    assert hidden, "el catálogo falso debe tener a alguien fuera del tablero"
+    assert theses["others"].sum() > 0
+
+
+def test_thesis_titles_match_the_catalog(
+    catalog: dict[str, pl.DataFrame], tables: dict[str, pl.DataFrame]
+) -> None:
+    # Calculado directo del catálogo, tesis por tesis. Los títulos falsos se repiten, así
+    # que se comparan tesis completas y no se busca por título.
+    shown = set(tables["people"]["person"])
+    names = dict(catalog["people"].select("person_id", "person").iter_rows())
+    roles: dict[int, dict[str, list[str]]] = {}
+    others: Counter[int] = Counter()
+    for thesis_id, person_id, _, role in catalog["participations"].iter_rows():
+        if names[person_id] in shown:
+            roles.setdefault(thesis_id, {}).setdefault(role, []).append(names[person_id])
+        else:
+            others[thesis_id] += 1
+    expected = Counter(
+        (
+            title,
+            level,
+            lab,
+            roles.get(thesis_id, {}).get("Director 1", [None])[0],
+            roles.get(thesis_id, {}).get("Director 2", [None])[0],
+            tuple(sorted(roles.get(thesis_id, {}).get(export.COMMITTEE, []))),
+            others[thesis_id],
+        )
+        for thesis_id, title, level, _, lab in catalog["theses"].iter_rows()
+    )
+    published = Counter(
+        (
+            row["title"],
+            row["level"],
+            row["lab"],
+            row["director_1"],
+            row["director_2"],
+            tuple(row["committee"]),
+            row["others"],
+        )
+        for row in tables["thesis_titles"].iter_rows(named=True)
+    )
+    assert published == expected

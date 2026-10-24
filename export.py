@@ -626,6 +626,38 @@ def project_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
     )
 
 
+def thesis_titles(d: dict[str, pl.DataFrame], kept: pl.DataFrame) -> pl.DataFrame:
+    """Títulos de tesis con su nivel, laboratorio, directores y comité; nunca el alumno.
+
+    El catálogo no guarda al alumno, así que no hay forma de que salga. Solo se nombra a
+    quien ya aparece en el tablero (`kept`); el resto de quienes participaron, como
+    profesores que ya no están en el CIC, solo se cuenta en `others`. Cada persona cuenta
+    una vez por tesis, con su rol más fuerte.
+    """
+    named = d["people"].select("person_id", "person").join(kept, on="person")
+    person = pl.col("person")
+    roles = (
+        d["participations"]
+        .join(named, on="person_id", how="left")
+        .group_by("thesis_id")
+        .agg(
+            director_1=person.filter(pl.col("role") == "Director 1").first(),
+            director_2=person.filter(pl.col("role") == "Director 2").first(),
+            committee=person.filter(pl.col("role") == COMMITTEE).drop_nulls().sort(),
+            others=person.is_null().sum(),
+        )
+    )
+    return (
+        d["theses"]
+        .select("thesis_id", "title", "level", "lab")
+        .filter(pl.col("title").str.strip_chars().str.len_chars() > 0)
+        .join(roles, on="thesis_id", how="left")
+        .with_columns(pl.col("others").fill_null(0))
+        .sort("title")
+        .drop("thesis_id")
+    )
+
+
 def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     """Todas las tablas agregadas a partir de las tablas a nivel de registro."""
     # Un año futuro es un error de captura: no debe mover totales ni tendencias. Sus
@@ -661,6 +693,7 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
         "person_venues": person_venues(d, profiles["people"].select("person")),
         "output_titles": output_titles(d),
         "project_titles": project_titles(d),
+        "thesis_titles": thesis_titles(d, profiles["people"].select("person")),
         **term_tables(
             docs["docs"],
             docs["doc_labs"],

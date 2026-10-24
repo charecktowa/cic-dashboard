@@ -80,6 +80,12 @@ def fake_catalog(seed: int = 7) -> dict[str, pl.DataFrame]:
         ]
         participations += [(thesis_id, p, 3, "Comité tutorial") for p in committee]
 
+    # Una profesora que ya no está en el CIC y estuvo en un solo comité: no entra al
+    # tablero, así que su tesis la cuenta sin nombrarla.
+    retired = len(people) + 1
+    people.append((retired, "Profesora Antigua", None, None))
+    participations.append((1, retired, 3, "Comité tutorial"))
+
     outputs, output_labs, output_authors = [], [], []
     for product_id in range(1, 241):
         own = rng.sample(labs, 2 if rng.random() < 0.25 else 1)
