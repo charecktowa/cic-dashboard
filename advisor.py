@@ -352,8 +352,9 @@ def render_openalex_venues(person: str) -> None:
     show(fig)
     st.caption(
         f"Sus {top.height} revistas y congresos con más trabajos en "
-        f"[OpenAlex]({OPENALEX_URL}) (CC0), sin tesis. OpenAlex cuenta todo lo que tiene "
-        "indexado, incluidos preprints como arXiv, así que puede diferir del catálogo del CIC."
+        f"[OpenAlex]({OPENALEX_URL}) (CC0): revistas, congresos y series de libros, sin "
+        "tesis ni repositorios como arXiv o SSRN. OpenAlex indexa más de lo que registra el "
+        "sitio del CIC, así que puede diferir del catálogo."
     )
 
 

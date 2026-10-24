@@ -35,6 +35,9 @@ TOP_WORKS = 25
 # Las tesis que indexa OpenAlex no se publican: ahí el autor suele ser el alumno. La app
 # no incluye este script, así que advisor.HIDDEN_WORK_TYPES repite la lista.
 HIDDEN_TYPES = ("dissertation",)
+# Fuentes que son lugares donde se publica. Quedan fuera los repositorios (arXiv, SSRN,
+# LA Referencia) y las plataformas de libros electrónicos (Springer eBooks).
+VENUE_TYPES = ("journal", "conference", "book series")
 IPN_NAMES = ("instituto politecnico nacional", "national polytechnic institute")
 FIELDS = ["person", "openalex_ids", "display_name", "works_count", "institution", "status"]
 # Estado de una fila revisada a mano: match la respeta.
@@ -183,9 +186,13 @@ def venue_counts(person: str, ids: list[str]) -> list[dict[str, Any]]:
     """Todos sus trabajos por revista o congreso, no solo los más citados.
 
     Una sola consulta agrupada trae hasta 200 revistas, de la que más trabajos tiene a la
-    que menos. Los trabajos sin revista no forman grupo y no cuentan.
+    que menos. Solo cuentan los tipos de VENUE_TYPES; los trabajos sin revista no forman
+    grupo.
     """
-    groups = get("/works", filter=works_filter(ids), group_by="primary_location.source.id")
+    venues_only = f",primary_location.source.type:{'|'.join(VENUE_TYPES)}"
+    groups = get(
+        "/works", filter=works_filter(ids) + venues_only, group_by="primary_location.source.id"
+    )
     return [
         {"person": person, "venue": group["key_display_name"], "works": group["count"]}
         for group in groups["group_by"]
