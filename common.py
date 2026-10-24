@@ -15,6 +15,8 @@ ROLES = ["Director 1", "Director 2", "Comité tutorial"]
 ROLE_COLORS = {"Director 1": "#1d6f6a", "Director 2": "#5cbcae", "Comité tutorial": "#f4a261"}
 KIND_COLORS = {"Artículo": "#2a6f97", "Congreso": "#e76f51"}
 ALL_LABS = "Todos los laboratorios"
+AUTHOR = "Andrea Gutiérrez"
+AUTHOR_URL = "https://github.com/charecktowa"
 # El botón de PNG es inofensivo; la selección por caja o lazo no aporta aquí.
 PLOT_CONFIG = {"displaylogo": False, "modeBarButtonsToRemove": ["select2d", "lasso2d"]}
 
@@ -94,6 +96,7 @@ def explain(markdown: str, label: str = "¿Cómo se calcula?") -> None:
 
 def footer() -> None:
     st.divider()
+    st.markdown(f"Hecho con ❤️ por **{AUTHOR}** · [@charecktowa]({AUTHOR_URL})")
     st.caption(
         f"Datos del sitio público del CIC, instantánea del {snapshot():%d/%m/%Y}. "
         "Proyecto independiente, sin relación oficial con el IPN ni el CIC."

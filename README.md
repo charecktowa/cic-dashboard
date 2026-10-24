@@ -98,6 +98,67 @@ En Nginx Proxy Manager, crea un **Proxy Host**:
 - **WebSockets** activado (viene activado por defecto en *Network*).
 - Opcional: una regla de *rate limiting* o *Bot Fight Mode* si ves tráfico abusivo.
 
+## Seguridad
+
+### Lo que ya trae el proyecto
+
+- **No hay nada valioso que robar.** Sin base de datos, sin credenciales, sin datos de
+  estudiantes: solo conteos derivados del sitio público del CIC.
+- **Los Parquet no se sirven por la web.** `enableStaticServing = false` y `data/` no está en
+  ninguna ruta pública; tampoco va dentro de la imagen, se monta aparte.
+- **Contenedor endurecido**: usuario sin privilegios (uid 1000), disco de solo lectura,
+  `cap_drop: ALL`, `no-new-privileges`, sin puertos publicados y 512 MB de memoria máxima.
+- **Lo que escriben los visitantes no ejecuta nada**: no hay SQL, `eval` ni
+  `unsafe_allow_html`, y el texto del buscador se reduce a letras, números y guiones.
+- **Sin detalles internos para visitantes**: ni trazas de error ni menú de desarrollador.
+  La protección XSRF de Streamlit viene activada.
+
+### Lo que depende del VPS
+
+1. **Que solo Cloudflare llegue al servidor.** Si alguien conoce la IP del VPS puede saltarse
+   Cloudflare. Abre los puertos 80 y 443 solo a los
+   [rangos de Cloudflare](https://www.cloudflare.com/ips/), por ejemplo con `ufw`:
+
+   ```bash
+   for ip in $(curl -s https://www.cloudflare.com/ips-v4) $(curl -s https://www.cloudflare.com/ips-v6); do
+       sudo ufw allow proto tcp from "$ip" to any port 80,443
+   done
+   ```
+
+   Ojo: Docker publica puertos saltándose `ufw`, así que revisa que el `compose` de Nginx
+   Proxy Manager no exponga 80/443 a todo internet, o usa un **Cloudflare Tunnel**, que no
+   abre ningún puerto.
+2. **El panel de Nginx Proxy Manager (puerto 81) no debe ser público.** Publícalo solo en
+   `127.0.0.1:81` y entra con un túnel SSH (`ssh -L 8181:127.0.0.1:81 vps`).
+3. **SSH solo con llave**, sin contraseña ni acceso directo de root
+   (`PasswordAuthentication no`, `PermitRootLogin no`), y actualizaciones automáticas del
+   sistema (`unattended-upgrades` en Debian/Ubuntu).
+4. **Límite de visitas en Cloudflare.** El riesgo realista es la saturación: cada visitante
+   abre un websocket. Una regla de *rate limiting* (por ejemplo, 60 peticiones por minuto por
+   IP) y *Bot Fight Mode* lo cubren casi todo; el límite de memoria evita que tumbe el VPS.
+5. **Permisos de los datos.** Que solo el usuario del contenedor los lea:
+
+   ```bash
+   sudo chown -R 1000:1000 ~/cic-dashboard/data && sudo chmod 700 ~/cic-dashboard/data && sudo chmod 600 ~/cic-dashboard/data/*
+   ```
+
+   Si tu usuario del VPS no es el uid 1000 (`id -u`), después necesitarás `sudo` para
+   actualizar `data/`.
+
+6. **Parches.** Reconstruye la imagen de vez en cuando para recibir las correcciones de
+   Streamlit y de Python:
+
+   ```bash
+   docker compose build --pull && docker compose up -d
+   ```
+
+### ¿Por qué los datos no están cifrados?
+
+La app necesita descifrarlos para dibujar las gráficas, así que la llave tendría que vivir en
+el mismo servidor: quien saque el archivo del VPS también puede sacar la llave. Además, cada
+gráfica le envía sus números al navegador. Cifrar solo tiene sentido para las copias que salen
+del servidor, como los respaldos.
+
 ## 4. Actualizar los datos
 
 ```bash

@@ -1,6 +1,6 @@
 import streamlit as st
 
-from common import footer, load, snapshot
+from common import AUTHOR, AUTHOR_URL, footer, load, snapshot
 
 totals = dict(load("totals").iter_rows())
 
@@ -41,7 +41,8 @@ información oficial del posgrado.
 
 ### Contacto y correcciones
 
-Si encuentras un error o tienes una idea para el tablero, escribe al autor. Las correcciones
+Este tablero es un proyecto personal de **{AUTHOR}**. Si encuentras un error o tienes una
+idea, escribe a [@charecktowa en GitHub]({AUTHOR_URL}). Las correcciones
 de fondo (un nombre, una tesis que falta) deben hacerse en el sitio del CIC; el tablero se
 actualiza a partir de ahí.
 """
