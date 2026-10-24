@@ -164,7 +164,10 @@ def lab_codes(labs: list[str]) -> None:
 
 
 def wrap(label: str) -> str:
-    return "<br>".join(textwrap.wrap(label, WRAP_AT)) if len(label) > WRAP_AT else label
+    """Un nombre largo en dos líneas como máximo: WRAPPED_ROW solo deja alto para dos."""
+    if len(label) <= WRAP_AT:
+        return label
+    return "<br>".join(textwrap.wrap(label, WRAP_AT, max_lines=2, placeholder=" …"))
 
 
 def show(fig, **kwargs):

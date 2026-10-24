@@ -382,3 +382,15 @@ def test_profile_lists_where_the_person_publishes() -> None:
     assert bars, "el perfil debe dibujar dónde publica"
     # Pocas revistas en el catálogo falso: caben todas, así que suman todos sus productos.
     assert sum(sum(numbers(trace["x"])) for trace in bars) == outputs
+
+
+def test_long_axis_labels_fit_in_two_lines() -> None:
+    import common
+
+    short = "Computación y Sistemas"
+    assert common.wrap(short) == short
+    long = "4th Workshop on Speech, Vision, and Language Technologies for Dravidian Languages"
+    lines = common.wrap(long).split("<br>")
+    assert len(lines) == 2
+    assert all(len(line) <= common.WRAP_AT for line in lines)
+    assert lines[-1].endswith("…")
