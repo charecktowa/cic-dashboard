@@ -22,8 +22,10 @@ PAGES = [
 PAGES_WITH_LAB_CHARTS = {"laboratorios", "asesores", "produccion"}
 
 
-def open_page(page: str) -> AppTest:
-    app = AppTest.from_file(str(APP), default_timeout=60).run()
+def open_page(page: str, **query: str) -> AppTest:
+    app = AppTest.from_file(str(APP), default_timeout=60)
+    app.query_params.update(query)
+    app.run()
     if page != "inicio":
         app.switch_page(f"views/{page}.py").run()
     return app
@@ -243,3 +245,23 @@ def test_codirection_flow_uses_lab_colors() -> None:
     nodes = sankey["node"]
     assert nodes["customdata"], "el catálogo falso debe tener codirecciones"
     assert nodes["color"] == [colors[lab] for lab in nodes["customdata"]]
+
+
+def profile_headers(app: AppTest) -> list[str]:
+    return [m.value for m in app.markdown if m.value.startswith("### ")]
+
+
+@pytest.mark.usefixtures("tables")
+def test_advisor_search_starts_empty() -> None:
+    app = open_page("asesores")
+    assert not app.exception, app.exception
+    assert app.selectbox(key="persona").value is None
+    assert not profile_headers(app)
+
+
+@pytest.mark.usefixtures("tables")
+@pytest.mark.parametrize(("name", "shown"), [("Persona 3", True), ("Nadie", False)])
+def test_advisor_profile_opens_from_the_url(name: str, shown: bool) -> None:
+    app = open_page("asesores", persona=name)
+    assert not app.exception, app.exception
+    assert profile_headers(app) == ([f"### {name}"] if shown else [])

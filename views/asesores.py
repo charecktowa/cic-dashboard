@@ -24,6 +24,28 @@ st.markdown(
     "participaron en al menos tres tesis. Los nombres y cifras salen del sitio público del CIC."
 )
 
+# --- Profile ----------------------------------------------------------------
+
+st.subheader("Busca a un asesor o asesora")
+# Ligado a la URL (?persona=...): un perfil se puede compartir o abrir desde otra página.
+person = st.selectbox(
+    "Nombre",
+    people.sort("person")["person"].to_list(),
+    index=None,
+    placeholder="Escribe un nombre o apellido",
+    key="persona",
+    bind="query-params",
+)
+if person is None:
+    st.caption(
+        "Su perfil muestra las tesis que dirige, sus publicaciones, sus temas y con quién "
+        "colabora. ¿No sabes a quién buscar? Mira el ranking de abajo o prueba **Encuentra tu "
+        "lab** con tu idea de tesis."
+    )
+else:
+    st.markdown(f"### {person}")
+    render_profile(person)
+
 # --- Ranking ----------------------------------------------------------------
 
 st.subheader("¿Quién participa en más tesis?")
@@ -76,20 +98,6 @@ la tesis también lista a los directores), así que el largo de la barra es el n
 tesis distintas en que participó.
 """
 )
-
-# --- Profile ----------------------------------------------------------------
-
-st.subheader("Perfil")
-names = people.sort("person")["person"].to_list()
-top = people.sort("director_1", descending=True)["person"][0]
-person = st.selectbox(
-    "Busca a una persona",
-    names,
-    index=names.index(top),
-    help="Escribe para filtrar la lista.",
-)
-st.markdown(f"### {person}")
-render_profile(person)
 
 # --- Publishing vs supervising ---------------------------------------------
 
