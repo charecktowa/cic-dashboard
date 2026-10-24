@@ -17,11 +17,22 @@ import openalex
 
 @dataclass
 class FakeApi:
-    """Respuestas en orden (un dict o una excepción), y lo que openalex.get() mandó."""
+    """Respuestas en orden (un dict o una excepción), lo que openalex.get() mandó y un reloj.
+
+    El reloj solo avanza con sleep(), así que las esperas no dependen del tiempo real.
+    """
 
     replies: list[dict | Exception] = field(default_factory=list)
     requests: list[urllib.request.Request] = field(default_factory=list)
     sleeps: list[float] = field(default_factory=list)
+    now: float = 1000.0
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+    def monotonic(self) -> float:
+        return self.now
 
 
 @pytest.fixture
@@ -36,9 +47,9 @@ def api(monkeypatch: pytest.MonkeyPatch) -> FakeApi:
         return io.BytesIO(json.dumps(reply).encode())
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
-    # Las esperas se registran en vez de dormir; sin pausa entre llamadas salvo que una
-    # prueba la pida.
-    monkeypatch.setattr(openalex.time, "sleep", fake.sleeps.append)
+    # openalex usa el reloj falso en lugar del módulo time; sin pausa entre llamadas salvo
+    # que una prueba la pida.
+    monkeypatch.setattr(openalex, "time", fake)
     monkeypatch.setattr(openalex, "MIN_INTERVAL", 0)
     monkeypatch.setattr(openalex, "last_request", 0.0)
     return fake
@@ -117,10 +128,8 @@ def test_calls_are_spaced_out(api: FakeApi, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(openalex, "MIN_INTERVAL", 0.2)
     openalex.get("/authors")
     openalex.get("/authors")
-    # La segunda llamada llega en seguida (las esperas no duermen), así que espera casi
-    # todo el intervalo.
-    (pause,) = api.sleeps
-    assert 0.1 < pause <= 0.2
+    # El reloj no avanzó entre las dos llamadas: la segunda espera el intervalo completo.
+    assert api.sleeps == [pytest.approx(0.2)]
 
 
 # Un candidato que match aceptaría como "auto" (nombre y afiliación al IPN): si queda en
@@ -191,7 +200,8 @@ def test_fetch_counts_every_work_by_venue(
     venues = pl.read_parquet(tmp_path / "openalex_venues.parquet")
     assert venues.to_dicts() == [{"person": "Ana López", "venue": "IEEE Access", "works": 7}]
     grouped = next(r for r in api.requests if "group_by" in r.full_url)
-    # Todos sus trabajos menos las tesis, que nunca se publican.
+    # Los trabajos de esta persona, menos las tesis, que nunca se publican.
+    assert "author.id%3AA9" in grouped.full_url
     assert "dissertation" in grouped.full_url
 
 
