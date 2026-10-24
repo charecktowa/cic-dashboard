@@ -1,6 +1,7 @@
 """La instantánea es lo único que se publica, así que se revisa qué contiene."""
 
 import datetime
+from pathlib import Path
 
 import polars as pl
 import pytest
@@ -108,3 +109,45 @@ def test_homonym_labels_never_take_an_existing_name() -> None:
     # Ni siquiera cuando el nombre literal también se repite.
     labels = homonyms([(1, "Ana"), (2, "Ana"), (3, "Ana (1)"), (4, "Ana (1)")])
     assert len(set(labels.values())) == 4
+
+
+def snapshot_files(out: Path) -> dict[str, pl.DataFrame]:
+    return {path.stem: pl.read_parquet(path) for path in sorted(out.glob("*.parquet"))}
+
+
+def test_write_replaces_the_snapshot(tmp_path: Path) -> None:
+    openalex = pl.DataFrame({"person": ["Persona 1"]})
+    openalex.write_parquet(tmp_path / "openalex_authors.parquet")
+    export.write({"meta": pl.DataFrame({"v": [1]}), "stale": pl.DataFrame({"v": [1]})}, tmp_path)
+    export.write({"meta": pl.DataFrame({"v": [2]})}, tmp_path)
+
+    files = snapshot_files(tmp_path)
+    # La tabla que ya no se exporta se va; la de OpenAlex no es de esta exportación.
+    assert set(files) == {"meta", "openalex_authors"}
+    assert files["meta"]["v"].to_list() == [2]
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".staging-")]
+
+
+def test_failed_write_keeps_the_previous_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    before = {"meta": pl.DataFrame({"v": [1]}), "totals": pl.DataFrame({"v": [1]})}
+    export.write(before, tmp_path)
+
+    original = pl.DataFrame.write_parquet
+
+    def fail_on_totals(frame: pl.DataFrame, path: Path, **kwargs: object) -> None:
+        if Path(path).stem == "totals":
+            raise OSError("disco lleno")
+        original(frame, path)
+
+    monkeypatch.setattr(pl.DataFrame, "write_parquet", fail_on_totals)
+    with pytest.raises(OSError, match="disco lleno"):
+        export.write(
+            {"meta": pl.DataFrame({"v": [2]}), "totals": pl.DataFrame({"v": [2]})}, tmp_path
+        )
+
+    files = snapshot_files(tmp_path)
+    assert set(files) == set(before)
+    assert all(frame["v"].to_list() == [1] for frame in files.values())
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".staging-")]

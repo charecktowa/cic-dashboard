@@ -12,7 +12,9 @@ Se ejecuta donde la base de datos es accesible:
 """
 
 import datetime
+import fcntl
 import os
+import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -607,14 +609,28 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
 
 
 def write(tables: dict[str, pl.DataFrame], out: Path) -> None:
-    """Reemplaza la instantánea en `out` por estas tablas."""
+    """Reemplaza la instantánea en `out` por estas tablas.
+
+    Todas se escriben primero en una carpeta oculta dentro de `out` (el mismo disco,
+    para que mover un archivo sea un rename atómico) y solo al final reemplazan a las
+    anteriores: una exportación que falla a medias deja intacta la instantánea previa.
+    Un candado impide que dos exportaciones simultáneas mezclen sus tablas.
+    """
     out.mkdir(exist_ok=True)
-    # Los archivos openalex_* los escribe openalex.py y no dependen de esta exportación.
-    for old in out.glob("*.parquet"):
-        if not old.name.startswith("openalex_"):
-            old.unlink()
-    for name, frame in tables.items():
-        frame.write_parquet(out / f"{name}.parquet")
+    with (out / ".export.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with tempfile.TemporaryDirectory(prefix=".staging-", dir=out) as staging:
+            staged = [Path(staging) / f"{name}.parquet" for name in tables]
+            for path, frame in zip(staged, tables.values(), strict=True):
+                frame.write_parquet(path)
+            # Los archivos openalex_* los escribe openalex.py y no dependen de esta
+            # exportación. Solo se borra lo que la nueva instantánea ya no trae.
+            fresh = {path.name for path in staged}
+            for old in out.glob("*.parquet"):
+                if not old.name.startswith("openalex_") and old.name not in fresh:
+                    old.unlink()
+            for path in staged:
+                path.replace(out / path.name)
 
 
 def main() -> None:
