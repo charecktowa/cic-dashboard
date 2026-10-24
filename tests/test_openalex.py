@@ -287,3 +287,35 @@ def test_cic_venues_refuse_more_ids_than_a_filter_takes(
     with pytest.raises(SystemExit, match="hasta 100"):
         openalex.cic_venue_counts([{"person": "Ana López", "openalex_ids": ids}])
     assert not api.requests
+
+
+def test_a_failed_fetch_keeps_the_previous_files(
+    api: FakeApi, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mapping = tmp_path / "openalex_authors.csv"
+    mapping.write_text(
+        "person,openalex_ids,display_name,works_count,institution,status\n"
+        "Ana López,A9,Ana López,12,Instituto Politécnico Nacional,auto\n"
+    )
+    pl.DataFrame({"person": ["Ana López"], "lab": ["IA"]}).write_parquet(
+        tmp_path / "people.parquet"
+    )
+    previous = tmp_path / "openalex_authors.parquet"
+    previous.write_bytes(b"instantanea anterior")
+    monkeypatch.setattr(openalex, "DATA", tmp_path)
+    monkeypatch.setattr(openalex, "MAPPING", mapping)
+    # La persona se consulta completa, pero la consulta del CIC se queda sin presupuesto.
+    api.replies = [
+        {"works_count": 12, "cited_by_count": 40},
+        {"group_by": []},
+        {"results": []},
+        http_error(429, **{"X-RateLimit-Remaining": "0"}),
+    ]
+
+    with pytest.raises(SystemExit):
+        openalex.fetch()
+
+    assert previous.read_bytes() == b"instantanea anterior"
+    assert sorted(p.name for p in tmp_path.glob("openalex_*.parquet")) == [
+        "openalex_authors.parquet"
+    ]

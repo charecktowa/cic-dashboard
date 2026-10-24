@@ -293,6 +293,9 @@ def fetch() -> None:
                 }
             )
         print(f"{person}: {authors[-1]['cited_by_count']:,} citas, {len(listed)} trabajos")
+    # Todas las consultas van antes de escribir: si OpenAlex falla a medias (por ejemplo,
+    # se acaba el presupuesto del día), los archivos anteriores quedan como estaban.
+    cic_venues = cic_venue_counts(mapping)
 
     pl.DataFrame(authors).write_parquet(DATA / "openalex_authors.parquet")
     pl.DataFrame(years).group_by("person", "year").agg(pl.sum("works", "citations")).write_parquet(
@@ -303,7 +306,7 @@ def fetch() -> None:
         venues, schema={"person": pl.String, "venue": pl.String, "works": pl.Int64}
     ).write_parquet(DATA / "openalex_venues.parquet")
     pl.DataFrame(
-        cic_venue_counts(mapping),
+        cic_venues,
         schema={"lab": pl.String, "venue": pl.String, "works": pl.Int64},
     ).write_parquet(DATA / "openalex_cic_venues.parquet")
     print(f"\n{len(authors)} perfiles de OpenAlex escritos en {DATA}")
