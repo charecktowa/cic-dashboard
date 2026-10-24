@@ -41,9 +41,15 @@ def test_titles_belong_to_research_staff(tables: dict[str, pl.DataFrame]) -> Non
 
 def test_profiles_list_every_publication(tables: dict[str, pl.DataFrame]) -> None:
     listed = tables["output_titles"].group_by("person").agg(listed=pl.len())
-    counted = tables["people"].drop_nulls("lab").filter(pl.col("outputs") > 0)
+    # Solo artículos y congresos llevan título publicado; un producto "Otro" no cuenta.
+    counted = (
+        tables["people"]
+        .drop_nulls("lab")
+        .with_columns(published=pl.col("articles") + pl.col("conferences"))
+        .filter(pl.col("published") > 0)
+    )
     both = counted.join(listed, on="person", how="left")
-    assert both["listed"].to_list() == both["outputs"].to_list()
+    assert both["listed"].to_list() == both["published"].to_list()
     repeated = tables["output_titles"].filter(pl.struct("person", "title", "year").is_duplicated())
     assert not repeated.is_empty(), "el catálogo falso debe tener un título repetido"
 

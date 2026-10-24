@@ -19,6 +19,7 @@ PAGES = [
     "produccion",
     "acerca",
 ]
+PAGES_WITH_LAB_CHARTS = {"laboratorios", "asesores", "produccion"}
 
 
 def open_page(page: str) -> AppTest:
@@ -185,7 +186,9 @@ def test_every_lab_keeps_its_color(page: str) -> None:
 
     colors = common.lab_colors()
     traces = [trace for spec in chart_specs(open_page(page)) for trace in spec["data"]]
-    for trace in traces:
-        if trace.get("name") in colors:
-            drawn = trace.get("marker", {}).get("color") or trace.get("line", {}).get("color")
-            assert drawn == colors[trace["name"]], (page, trace["name"])
+    by_lab = [trace for trace in traces if trace.get("name") in colors]
+    # Sin esto, una página que dejara de dibujar sus gráficas por laboratorio pasaría.
+    assert bool(by_lab) == (page in PAGES_WITH_LAB_CHARTS), page
+    for trace in by_lab:
+        drawn = trace.get("marker", {}).get("color") or trace.get("line", {}).get("color")
+        assert drawn == colors[trace["name"]], (page, trace["name"])
