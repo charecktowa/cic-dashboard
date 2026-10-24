@@ -2,7 +2,18 @@ import plotly.express as px
 import polars as pl
 import streamlit as st
 
-from common import LABELS, ROLE_COLORS, ROLES, distinctive, explain, footer, load, show
+from common import (
+    LABELS,
+    ORANGE,
+    ROLE_COLORS,
+    ROLES,
+    TEAL_SCALE,
+    distinctive,
+    explain,
+    footer,
+    load,
+    show,
+)
 
 people = load("people")
 roles = load("advisor_roles")
@@ -142,7 +153,7 @@ with middle:
             y="term",
             orientation="h",
             color="lift",
-            color_continuous_scale="Teal",
+            color_continuous_scale=TEAL_SCALE,
             hover_data={"lift": ":.1f", "score": False},
             labels=LABELS,
         )
@@ -159,7 +170,7 @@ with right:
             x="theses",
             y="other",
             orientation="h",
-            color_discrete_sequence=["#f4a261"],
+            color_discrete_sequence=[ORANGE],
             labels=LABELS,
         )
         fig.update_layout(height=320)

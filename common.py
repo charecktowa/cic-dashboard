@@ -2,6 +2,7 @@
 
 import datetime
 import math
+import textwrap
 from pathlib import Path
 
 import polars as pl
@@ -12,8 +13,13 @@ import text
 DATA = Path(__file__).parent / "data"
 CURRENT_YEAR = datetime.date.today().year
 ROLES = ["Director 1", "Director 2", "Comité tutorial"]
-ROLE_COLORS = {"Director 1": "#1d6f6a", "Director 2": "#5cbcae", "Comité tutorial": "#f4a261"}
-KIND_COLORS = {"Artículo": "#2a6f97", "Congreso": "#e76f51"}
+# Tonos intermedios: se leen igual sobre el fondo claro y sobre el oscuro.
+TEAL, BLUE, ORANGE, CORAL = "#2a9d8f", "#4a90d9", "#f4a261", "#e76f51"
+ROLE_COLORS = {"Director 1": TEAL, "Director 2": BLUE, "Comité tutorial": ORANGE}
+KIND_COLORS = {"Artículo": BLUE, "Congreso": CORAL}
+# Escalas sin extremos casi blancos ni casi negros, que desaparecerían en un modo u otro.
+TEAL_SCALE = ["#7ccfc0", "#1f8a7e"]
+ORANGE_SCALE = ["#f6b17a", "#c2410c"]
 ALL_LABS = "Todos los laboratorios"
 AUTHOR = "Andrea Gutiérrez"
 AUTHOR_URL = "https://github.com/charecktowa"
@@ -57,6 +63,13 @@ LABELS = {
 }
 # Los ejes de categorías se explican solos; su etiqueta solo se usa en los tooltips.
 UNTITLED_AXES = {"Laboratorio", "Término", "Persona", "Colega", "Revista o congreso", "Año"}
+# Siglas para ejes estrechos, como el mapa de calor en un celular.
+LAB_CODE_OVERRIDES = {"Ciberseguridad": "Ciber", "Ciencias de la Información Cuántica": "CIQ"}
+LAB_CODE_SKIP = {"de", "del", "la", "las", "el", "los", "en", "para", "a"}
+# Un nombre más largo se parte en dos líneas para no robarle ancho a las barras.
+WRAP_AT = 26
+# Alto mínimo por barra cuando hay etiquetas de dos líneas, para que no se encimen.
+WRAPPED_ROW = 42
 LAB_METRICS = [
     "theses",
     "outputs",
@@ -76,16 +89,43 @@ def snapshot() -> datetime.date:
     return load("meta")["snapshot"][0]
 
 
+def lab_code(lab: str) -> str:
+    """Siglas de un laboratorio: "Robótica y Mecatrónica" → "RyM"."""
+    if lab in LAB_CODE_OVERRIDES:
+        return LAB_CODE_OVERRIDES[lab]
+    words = [w for w in lab.split() if w.lower() not in LAB_CODE_SKIP]
+    return "".join(w if w.lower() in {"y", "e"} else w[0].upper() for w in words)
+
+
+def wrap(label: str) -> str:
+    return "<br>".join(textwrap.wrap(label, WRAP_AT)) if len(label) > WRAP_AT else label
+
+
 def show(fig, **kwargs):
     """Dibuja una figura de Plotly con el estilo común del tablero."""
     fig.update_layout(
         margin={"l": 10, "r": 10, "t": 40, "b": 10},
         legend_title_text="",
         hoverlabel={"align": "left"},
+        # Sin arrastre, deslizar el dedo sobre una gráfica mueve la página en vez de
+        # hacer zoom; los botones + y − de la barra siguen acercando.
+        dragmode=False,
     )
     for axis in [fig.layout.xaxis, fig.layout.yaxis]:
         if axis.title.text in UNTITLED_AXES:
             axis.title.text = None
+    # En barras horizontales, los nombres largos van en dos líneas; el tooltip
+    # sigue mostrando el nombre completo.
+    categories = {
+        label
+        for trace in fig.data
+        if trace.type == "bar" and trace.orientation == "h" and trace.y is not None
+        for label in trace.y
+        if isinstance(label, str)
+    }
+    if any(len(label) > WRAP_AT for label in categories):
+        fig.update_yaxes(tickvals=list(categories), ticktext=[wrap(c) for c in categories])
+        fig.update_layout(height=max(fig.layout.height or 0, WRAPPED_ROW * len(categories) + 100))
     return st.plotly_chart(fig, config=PLOT_CONFIG, width="stretch", **kwargs)
 
 

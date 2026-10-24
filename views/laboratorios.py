@@ -3,9 +3,12 @@ import polars as pl
 import streamlit as st
 
 from common import (
+    BLUE,
     KIND_COLORS,
     LAB_METRICS,
     LABELS,
+    TEAL,
+    TEAL_SCALE,
     explain,
     fmt_share,
     footer,
@@ -41,7 +44,7 @@ fig = px.bar(
     y="lab",
     orientation="h",
     color=metric,
-    color_continuous_scale="Teal",
+    color_continuous_scale=TEAL_SCALE,
     hover_data={
         "researchers": True,
         "theses": True,
@@ -115,7 +118,7 @@ with tab_terms:
             y="term",
             orientation="h",
             color="lift",
-            color_continuous_scale="Teal",
+            color_continuous_scale=TEAL_SCALE,
             hover_data={"everywhere": True, "lift": ":.1f", "score": False},
             labels=LABELS,
         )
@@ -142,7 +145,7 @@ with tab_people:
             facet_col="what",
             orientation="h",
             color="what",
-            color_discrete_sequence=["#1d6f6a", "#2a6f97"],
+            color_discrete_sequence=[TEAL, BLUE],
             labels={**LABELS, "n": "", "what": ""},
         )
         fig.update_xaxes(matches=None)

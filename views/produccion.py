@@ -2,7 +2,19 @@ import plotly.express as px
 import polars as pl
 import streamlit as st
 
-from common import ALL_LABS, CURRENT_YEAR, KIND_COLORS, LABELS, explain, footer, load, show
+from common import (
+    ALL_LABS,
+    BLUE,
+    CORAL,
+    CURRENT_YEAR,
+    KIND_COLORS,
+    LABELS,
+    TEAL,
+    explain,
+    footer,
+    load,
+    show,
+)
 
 outputs = load("outputs_by_year")
 lab_names = sorted(load("lab_stats")["lab"])
@@ -124,7 +136,7 @@ with left:
         x="year",
         y="projects",
         color="scope",
-        color_discrete_map={"Un laboratorio": "#2a9d8f", "Varios laboratorios": "#e76f51"},
+        color_discrete_map={"Un laboratorio": TEAL, "Varios laboratorios": CORAL},
         labels=LABELS,
         title="Proyectos por año",
     )
@@ -135,7 +147,7 @@ with right:
         sizes,
         x="members",
         y="projects",
-        color_discrete_sequence=["#264653"],
+        color_discrete_sequence=[BLUE],
         labels=LABELS,
         title="Tamaño del equipo",
     )

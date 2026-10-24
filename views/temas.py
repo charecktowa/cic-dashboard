@@ -3,7 +3,7 @@ import polars as pl
 import streamlit as st
 
 import text
-from common import CURRENT_YEAR, LABELS, explain, footer, load, rising_terms, show
+from common import CORAL, CURRENT_YEAR, LABELS, TEAL, explain, footer, load, rising_terms, show
 
 term_year, term_lab = load("term_year"), load("term_lab")
 SUGGESTIONS = {
@@ -130,7 +130,7 @@ fig = px.bar(
     y="term",
     color="direction",
     orientation="h",
-    color_discrete_map={"Crece": "#2a9d8f", "Baja": "#e76f51"},
+    color_discrete_map={"Crece": TEAL, "Baja": CORAL},
     hover_data={"change": ":+.2f", "recent": True, "before": True, "direction": False},
     labels={
         **LABELS,

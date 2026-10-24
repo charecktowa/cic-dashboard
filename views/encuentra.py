@@ -3,7 +3,7 @@ import polars as pl
 import streamlit as st
 
 import text
-from common import LABELS, explain, footer, load, match, show
+from common import LABELS, TEAL_SCALE, explain, footer, load, match, show
 
 EXAMPLES = {
     "Noticias falsas": "detección de noticias falsas en redes sociales con lenguaje natural",
@@ -87,7 +87,7 @@ with left:
         y="lab",
         orientation="h",
         color="affinity",
-        color_continuous_scale="Teal",
+        color_continuous_scale=TEAL_SCALE,
         range_color=[0, 100],
         hover_data={"matched": True, "affinity": True},
         labels=LABELS,
@@ -106,6 +106,9 @@ with right:
         color="lab",
         hover_data={"lab": True, "matched": True, "affinity": True},
         labels=LABELS,
+        # Un color por laboratorio parte las barras en series; sin esto Plotly las
+        # ordenaría por serie y no por afinidad.
+        category_orders={"person": people.head(8)["person"].to_list()},
     )
     fig.update_layout(height=45 * top_people.height + 100, legend={"orientation": "h", "y": -0.2})
     fig.update_xaxes(range=[0, 105])

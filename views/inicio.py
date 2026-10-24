@@ -18,18 +18,20 @@ per_year = (
     .agg(pl.sum("outputs"))
     .sort("year")
 )
-for column, (metric, value) in zip(st.columns(5), load("totals").iter_rows(), strict=True):
-    sparkline = per_year["outputs"].to_list() if metric == "Artículos y congresos" else None
-    column.metric(
-        metric,
-        f"{value:,}",
-        border=True,
-        chart_data=sparkline,
-        chart_type="area",
-        help="La línea muestra los productos por año en los últimos 15 años."
-        if sparkline
-        else None,
-    )
+# Una fila que se parte sola: cinco tarjetas en escritorio, dos por fila en un celular.
+with st.container(horizontal=True, gap="small"):
+    for metric, value in load("totals").iter_rows():
+        sparkline = per_year["outputs"].to_list() if metric == "Artículos y congresos" else None
+        st.metric(
+            metric,
+            f"{value:,}",
+            border=True,
+            chart_data=sparkline,
+            chart_type="area",
+            help="La línea muestra los productos por año en los últimos 15 años."
+            if sparkline
+            else None,
+        )
 
 st.subheader("¿Por dónde empiezo?")
 cards = [
@@ -124,7 +126,8 @@ with st.expander("Cómo usar las gráficas", icon=":material/touch_app:"):
         """
 - **Pasa el cursor** (o toca, en el celular) sobre una barra o un punto para ver sus números.
 - **Haz clic en la leyenda** para ocultar una serie; **doble clic** para dejar solo esa.
-- **Arrastra** sobre una gráfica para hacer zoom; **doble clic** la regresa a su tamaño.
+- Usa los botones **+** y **−** de la esquina de cada gráfica para acercarte; la **casita** la
+  regresa a su tamaño.
 - Cada sección tiene un desplegable **¿Cómo se calcula?** que explica de dónde sale cada número.
 """
     )

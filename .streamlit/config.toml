@@ -11,6 +11,10 @@ showErrorDetails = "none"
 [browser]
 gatherUsageStats = false
 
-[theme]
-base = "light"
+# Con un tema claro y uno oscuro, cada visitante ve el modo de su dispositivo y puede
+# cambiarlo en el menú ⋮ → Settings. Un [theme] solo sería siempre claro.
+[theme.light]
+primaryColor = "#2a9d8f"
+
+[theme.dark]
 primaryColor = "#2a9d8f"
