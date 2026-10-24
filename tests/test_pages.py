@@ -506,13 +506,29 @@ def test_lab_venues_stack_both_kinds() -> None:
     app = open_page("laboratorios")
     lab = app.selectbox[0].value
     venues = common.load("venues").filter(pl.col("lab") == lab)
-    bars = [
-        trace
+    (chart,) = [
+        spec
         for spec in chart_specs(app)
-        for trace in spec["data"]
-        if trace["type"] == "bar" and set(trace["y"]) <= set(venues["venue"])
+        if spec["data"]
+        and all(
+            trace["type"] == "bar" and set(trace["y"]) <= set(venues["venue"])
+            for trace in spec["data"]
+        )
     ]
-    by_kind = dict(venues.group_by("kind").agg(pl.sum("outputs")).iter_rows())
-    assert len(by_kind) == 2, "el catálogo falso debe tener artículos y congresos"
-    # Pocas revistas en el catálogo falso: caben todas, así que suman todo por tipo.
-    assert {trace["name"]: sum(numbers(trace["x"])) for trace in bars} == by_kind
+    # Apiladas: con barras lado a lado, una revista con los dos tipos se vería partida.
+    assert chart["layout"]["barmode"] in {"stack", "relative"}
+    drawn = {
+        (venue, trace["name"]): value
+        for trace in chart["data"]
+        for venue, value in zip(trace["y"], numbers(trace["x"]), strict=True)
+    }
+    expected = {
+        (venue, kind): outputs
+        for venue, kind, outputs in venues.select("venue", "kind", "outputs").iter_rows()
+    }
+    assert {kind for _, kind in expected} == set(common.KIND_COLORS), (
+        "el catálogo falso debe tener artículos y congresos"
+    )
+    # Pocas revistas en el catálogo falso: caben todas, así que se compara revista por
+    # revista y tipo por tipo.
+    assert drawn == expected
