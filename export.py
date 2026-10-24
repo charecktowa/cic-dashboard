@@ -13,6 +13,7 @@ Se ejecuta donde la base de datos es accesible:
 
 import datetime
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,31 @@ def query(sql: str) -> pl.DataFrame:
         return pl.DataFrame(cursor.fetchall(), schema=columns, orient="row")
 
 
+def label_homonyms(people: pl.DataFrame) -> pl.DataFrame:
+    """Un nombre distinto por persona: los homónimos llevan un sufijo " (n)".
+
+    El nombre es la llave de cada persona en la instantánea, que no publica ids. El
+    sufijo sigue el orden de `person_id`, así que la misma persona conserva su número
+    entre exportaciones, y salta los nombres que ya existen: otra persona podría
+    llamarse literalmente "Ana López (2)".
+    """
+    people = people.sort("person_id")
+    names = people["person"].to_list()
+    counts = Counter(names)
+    taken = {name for name, n in counts.items() if n == 1}
+    labels = []
+    for name in names:
+        if name is None or counts[name] == 1:
+            labels.append(name)
+            continue
+        n = 1
+        while f"{name} ({n})" in taken:
+            n += 1
+        taken.add(f"{name} ({n})")
+        labels.append(f"{name} ({n})")
+    return people.with_columns(person=pl.Series(labels, dtype=pl.String))
+
+
 def load() -> dict[str, pl.DataFrame]:
     """Tablas a nivel de registro. Se quedan en memoria y nunca se escriben."""
     # Algunos nombres repiten el prefijo ("Laboratorio Laboratorio de ...").
@@ -73,17 +99,7 @@ def load() -> dict[str, pl.DataFrame]:
         GROUP BY p.id, p.display_name
         """
     ).join(lab_name, on="lab_id", how="left")
-    # Dos personas pueden compartir nombre; un sufijo las mantiene separadas.
-    people = people.with_columns(
-        person=pl.when(pl.col("person").is_duplicated())
-        .then(
-            pl.col("person")
-            + " ("
-            + (pl.int_range(pl.len()).over("person") + 1).cast(pl.String)
-            + ")"
-        )
-        .otherwise(pl.col("person"))
-    )
+    people = label_homonyms(people)
 
     theses = query(
         """

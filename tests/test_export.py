@@ -78,3 +78,24 @@ def test_a_shared_output_counts_once_overall(
     overall = tables["outputs_by_year"].filter(pl.col("lab").is_null())["outputs"].sum()
     dated = catalog["outputs"].filter(pl.col("year") <= datetime.date.today().year)
     assert overall == dated.height
+
+
+def homonyms(rows: list[tuple[int, str]]) -> dict[int, str]:
+    people = pl.DataFrame(rows, schema=["person_id", "person"], orient="row")
+    return dict(export.label_homonyms(people).iter_rows())
+
+
+def test_homonyms_keep_their_number_between_exports() -> None:
+    rows = [(7, "Ana López"), (3, "Ana López"), (5, "Luis Pérez"), (1, "Ana López")]
+    expected = {1: "Ana López (1)", 3: "Ana López (2)", 7: "Ana López (3)", 5: "Luis Pérez"}
+    # La base de datos no promete un orden: cualquiera debe dar los mismos nombres.
+    assert homonyms(rows) == expected
+    assert homonyms(rows[::-1]) == expected
+
+
+def test_homonym_labels_never_take_an_existing_name() -> None:
+    labels = homonyms([(1, "Ana López"), (2, "Ana López (2)"), (3, "Ana López")])
+    assert labels == {1: "Ana López (1)", 2: "Ana López (2)", 3: "Ana López (3)"}
+    # Ni siquiera cuando el nombre literal también se repite.
+    labels = homonyms([(1, "Ana"), (2, "Ana"), (3, "Ana (1)"), (4, "Ana (1)")])
+    assert len(set(labels.values())) == 4
