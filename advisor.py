@@ -77,6 +77,25 @@ def year_span(years: list[int]) -> str:
     return ", ".join(f"{run[0]}–{run[-1]}" if len(run) > 1 else str(run[0]) for run in runs)
 
 
+def thesis_lines(theses: pl.DataFrame) -> list[str]:
+    """Tesis como lista Markdown: nivel, quién dirige, el comité y cuántas personas más."""
+
+    def names(people: list[str | None]) -> str:
+        return ", ".join(p.translate(MARKDOWN_SPECIAL) for p in people if p)
+
+    lines = []
+    for thesis in theses.iter_rows(named=True):
+        parts = [f"**{thesis['title'].translate(MARKDOWN_SPECIAL)}**", thesis["level"] or ""]
+        if directors := names([thesis["director_1"], thesis["director_2"]]):
+            parts.append(f"Dirige: {directors}")
+        if committee := names(thesis["committee"]):
+            parts.append(f"Comité: {committee}")
+        if others := thesis["others"]:
+            parts.append(f"y {others} {'persona' if others == 1 else 'personas'} más")
+        lines.append("- " + " · ".join(part for part in parts if part))
+    return lines
+
+
 def project_lines(projects: pl.DataFrame) -> list[str]:
     """Proyectos como lista Markdown, con sus años y el rol de la persona si se conoce."""
     lines = []
@@ -126,9 +145,10 @@ def render_profile(person: str) -> None:
 
     st.caption(profile["lab"] or "Sin laboratorio en el CIC (participa como persona externa)")
     render_cards(profile, per_year)
-    overview, by_year, venues, projects, topics, standing, publications = st.tabs(
+    overview, theses, by_year, venues, projects, topics, standing, publications = st.tabs(
         [
             "Panorama",
+            "Tesis",
             "Producción por año",
             "Dónde publica",
             "Proyectos",
@@ -139,6 +159,8 @@ def render_profile(person: str) -> None:
     )
     with overview:
         render_overview(person, profile)
+    with theses:
+        render_theses(person)
     with by_year:
         render_by_year(person, per_year)
     with venues:
@@ -158,6 +180,8 @@ def render_profile(person: str) -> None:
 - **Dónde publica**: revistas y congresos de sus artículos en el catálogo del CIC (las
   variantes de escritura de un mismo nombre se cuentan juntas) y de todos sus trabajos en
   OpenAlex, sin tesis.
+- **Tesis**: las tesis en que participa, por rol, con su nivel, quién las dirige y su
+  comité. Nunca se muestra al alumno.
 - **Proyectos**: los proyectos de investigación registrados en el sitio del CIC en que
   participa, con sus años y su rol (responsable técnico o colaborador).
 - **Temas característicos**: términos de los títulos de sus tesis dirigidas, artículos,
@@ -354,6 +378,32 @@ def render_openalex_venues(person: str) -> None:
         f"Sus {top.height} revistas y congresos con más trabajos en "
         f"[OpenAlex]({OPENALEX_URL}) (CC0), sin tesis. OpenAlex cuenta todo lo que tiene "
         "indexado, incluidos preprints como arXiv, así que puede diferir del catálogo del CIC."
+    )
+
+
+def render_theses(person: str) -> None:
+    """Las tesis en que participa, por rol, con sus directores y su comité."""
+    theses = load_optional("thesis_titles")
+    if theses is None:
+        st.caption("Esta instantánea de datos todavía no incluye los títulos de tesis.")
+        return
+    by_role = {
+        "Como Director 1": theses.filter(pl.col("director_1") == person),
+        "Como Director 2": theses.filter(pl.col("director_2") == person),
+        "En comité tutorial": theses.filter(pl.col("committee").list.contains(person)),
+    }
+    shown = {label: rows for label, rows in by_role.items() if not rows.is_empty()}
+    if not shown:
+        st.caption("Sin tesis en el catálogo del CIC.")
+        return
+    for i, (label, rows) in enumerate(shown.items()):
+        with st.expander(f"{label} ({rows.height})", expanded=i == 0):
+            ordered = rows.sort(["level", "title"], descending=[False, False])
+            st.markdown("\n".join(thesis_lines(ordered)))
+    st.caption(
+        "Títulos del sitio del CIC, sin el nombre del alumno. Solo se nombra a quien aparece "
+        'en este tablero; "personas más" son quienes también participaron, como '
+        "profesores que ya no están en el CIC."
     )
 
 

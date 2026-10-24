@@ -459,3 +459,41 @@ def test_project_lines_escape_markdown() -> None:
     # Ni el título ni el rol pueden volverse formato o un enlace.
     assert "](" not in line
     assert line == r"- **Un \*título\*** · 2024 · \[Responsable\]\(https://ejemplo\.test\)"
+
+
+def test_thesis_lines_name_advisors_and_count_the_rest() -> None:
+    from advisor import thesis_lines
+
+    theses = pl.DataFrame(
+        {
+            "title": ["Un *título*"],
+            "level": ["Doctorado"],
+            "director_1": ["Ana López"],
+            "director_2": [None],
+            "committee": [["Luis Pérez", "Eva [Ruiz]"]],
+            "others": [1],
+        }
+    )
+    (line,) = thesis_lines(theses)
+    assert line == (
+        r"- **Un \*título\*** · Doctorado · Dirige: Ana López · "
+        r"Comité: Luis Pérez, Eva \[Ruiz\] · y 1 persona más"
+    )
+
+
+@pytest.mark.usefixtures("tables")
+def test_profile_lists_theses_by_role() -> None:
+    import common
+    from advisor import MARKDOWN_SPECIAL
+
+    theses = common.load("thesis_titles")
+    directed = theses.filter(pl.col("director_1") == "Persona 1")
+    committee = theses.filter(pl.col("committee").list.contains("Persona 1"))
+    assert not directed.is_empty() and not committee.is_empty()
+    app = render_profile_app("Persona 1")
+    labels = [e.label for e in app.expander]
+    assert f"Como Director 1 ({directed.height})" in labels
+    assert f"En comité tutorial ({committee.height})" in labels
+    markdown = " ".join(m.value for m in app.markdown)
+    for title in directed["title"]:
+        assert f"**{title.translate(MARKDOWN_SPECIAL)}**" in markdown
