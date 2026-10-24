@@ -66,3 +66,24 @@ def test_finder_opens_a_profile_without_leaving_the_page() -> None:
     opener.click().run()
     assert not app.exception, app.exception
     assert "Laboratorios afines" in [s.value for s in app.subheader]
+
+
+@pytest.mark.usefixtures("tables")
+@pytest.mark.parametrize("person", ["Persona 1", "Persona 2"])
+def test_profile_renders_with_and_without_openalex(person: str) -> None:
+    script = f"""
+import streamlit as st
+from advisor import render_profile
+render_profile({person!r})
+"""
+    app = AppTest.from_string(script, default_timeout=60).run()
+    assert not app.exception, app.exception
+    captions = " ".join(c.value for c in app.caption)
+    linked = "no tiene un perfil de OpenAlex" not in captions
+    assert linked == (person == "Persona 1")
+
+
+def test_missing_optional_table_is_none() -> None:
+    import common
+
+    assert common.load_optional("no_existe") is None

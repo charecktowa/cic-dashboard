@@ -91,6 +91,11 @@ def load(name: str) -> pl.DataFrame:
     return pl.read_parquet(DATA / f"{name}.parquet")
 
 
+def load_optional(name: str) -> pl.DataFrame | None:
+    """Como load(), pero None si el archivo no existe (por ejemplo, sin datos de OpenAlex)."""
+    return load(name) if (DATA / f"{name}.parquet").exists() else None
+
+
 def snapshot() -> datetime.date:
     return load("meta")["snapshot"][0]
 

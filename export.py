@@ -549,8 +549,10 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
 def write(tables: dict[str, pl.DataFrame], out: Path) -> None:
     """Reemplaza la instantánea en `out` por estas tablas."""
     out.mkdir(exist_ok=True)
+    # Los archivos openalex_* los escribe openalex.py y no dependen de esta exportación.
     for old in out.glob("*.parquet"):
-        old.unlink()
+        if not old.name.startswith("openalex_"):
+            old.unlink()
     for name, frame in tables.items():
         frame.write_parquet(out / f"{name}.parquet")
 

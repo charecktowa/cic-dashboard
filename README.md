@@ -23,6 +23,8 @@ asesor. Hecho con Streamlit y Plotly.
 - La app solo lee `data/`. No tiene conexión a la base de datos ni credenciales, y no ofrece
   tablas de títulos ni botones de descarga.
 - Los términos que aparecen en menos de tres títulos se descartan.
+- Los únicos títulos visibles son publicaciones del personal investigador que vienen de
+  [OpenAlex](https://openalex.org) (CC0), con enlace a su DOI. Ningún título de tesis.
 
 Lo que una gráfica muestra llega al navegador: los valores del tooltip se pueden leer y la
 barra de Plotly guarda un PNG. Que todo esté agregado antes es lo que lo vuelve inofensivo.
@@ -53,6 +55,30 @@ uv run --group export python export.py
 
 El grupo `export` añade `psycopg`; la app no lo necesita y la imagen no lo instala.
 `data/` está en `.gitignore`: se copia al servidor aparte.
+
+## 1b. Métricas y publicaciones de OpenAlex (opcional)
+
+`openalex.py` vincula a cada persona investigadora con su perfil de
+[OpenAlex](https://openalex.org) y trae citas, índice h, citas por año y sus trabajos más
+citados. Los datos de OpenAlex son de dominio público (CC0). Corre en tu máquina, después de
+`export.py`; el VPS nunca llama a OpenAlex.
+
+```bash
+export OPENALEX_API_KEY=...      # opcional: la llave gratuita multiplica el presupuesto diario
+uv run python openalex.py match  # propone un autor de OpenAlex por persona
+uv run python openalex.py fetch  # trae métricas y trabajos de los autores revisados
+```
+
+`match` escribe `openalex_authors.csv` con una columna `status`:
+
+- `auto`: nombre parecido y afiliación al IPN. Suele estar bien, pero revísalo.
+- `revisar`: dudoso, o dos personas apuntan al mismo autor. Corrige el id a mano.
+- `corregido`: corregido a mano.
+- `sin coincidencia`: sin candidato; busca a la persona en openalex.org si quieres agregarla.
+
+Una persona partida en varios perfiles de OpenAlex lleva sus ids separados por `|`; `fetch`
+los suma. El CSV está versionado para que las correcciones no se pierdan. Sin los archivos
+`openalex_*`, la pestaña **Publicaciones** del perfil simplemente lo indica.
 
 ## 2. Probar en local
 

@@ -119,4 +119,35 @@ def catalog() -> dict[str, pl.DataFrame]:
 def tables(catalog: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     built = export.build(catalog)
     export.write(built, FAKE_DATA)
+    write_fake_openalex()
     return built
+
+
+def write_fake_openalex() -> None:
+    """Datos de OpenAlex para una sola persona: las demás no tienen perfil vinculado."""
+    pl.DataFrame(
+        {
+            "person": ["Persona 1"],
+            "openalex_ids": ["A1"],
+            "works_count": [40],
+            "cited_by_count": [900],
+            "h_index": [12],
+            "i10_index": [15],
+            "topics": ["Natural Language Processing"],
+        }
+    ).write_parquet(FAKE_DATA / "openalex_authors.parquet")
+    pl.DataFrame(
+        {"person": ["Persona 1"] * 3, "year": [YEAR - 2, YEAR - 1, YEAR], "works": [3, 4, 2]}
+    ).with_columns(citations=pl.lit(50)).write_parquet(FAKE_DATA / "openalex_years.parquet")
+    pl.DataFrame(
+        {
+            "person": ["Persona 1", "Persona 1"],
+            "title": ["Un título con *asteriscos* y [corchetes]", "Otro trabajo"],
+            "year": [YEAR - 1, None],
+            "type": ["article", "conference-paper"],
+            "venue": ["IEEE Access", ""],
+            "doi": ["https://doi.org/10.1234/abc", ""],
+            "cited_by_count": [120, 3],
+            "is_oa": [True, False],
+        }
+    ).write_parquet(FAKE_DATA / "openalex_works.parquet")

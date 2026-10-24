@@ -17,10 +17,24 @@ from common import (
     distinctive,
     explain,
     load,
+    load_optional,
     show,
 )
 
 PURPLE = "#9b7fd9"
+OPENALEX_URL = "https://openalex.org"
+WORK_TYPES = {
+    "article": "Artículo",
+    "conference-paper": "Congreso",
+    "book-chapter": "Capítulo de libro",
+    "book": "Libro",
+    "preprint": "Preprint",
+    "review": "Revisión",
+    "dissertation": "Tesis",
+    "dataset": "Datos",
+}
+# Caracteres que Markdown interpretaría dentro de un título.
+MARKDOWN_SPECIAL = str.maketrans({c: f"\\{c}" for c in "\\`*_{}[]<>()#+-.!|"})
 WORK_COLORS = {
     "Artículos": BLUE,
     "Congresos": CORAL,
@@ -66,7 +80,9 @@ def render_profile(person: str) -> None:
             border=True,
         )
 
-    overview, by_year, topics = st.tabs(["Panorama", "Producción por año", "Temas y colaboración"])
+    overview, by_year, topics, publications = st.tabs(
+        ["Panorama", "Producción por año", "Temas y colaboración", "Publicaciones (OpenAlex)"]
+    )
     with overview:
         left, right = st.columns(2, gap="large")
         with left:
@@ -167,6 +183,8 @@ def render_profile(person: str) -> None:
                 )
                 fig.update_layout(height=340)
                 show(fig)
+    with publications:
+        render_openalex(person)
     explain(
         """
 - **¿A qué dedica su trabajo?** compara artículos en revista, trabajos en congreso, tesis que
@@ -176,6 +194,78 @@ def render_profile(person: str) -> None:
 - **Con quién coincide**: personas que participaron en las mismas tesis, como directores o
   en el comité. Útil para pensar en un posible codirector.
 """
+    )
+
+
+def render_openalex(person: str) -> None:
+    """Métricas, citas por año y trabajos más citados según OpenAlex."""
+    authors = load_optional("openalex_authors")
+    found = authors.filter(pl.col("person") == person) if authors is not None else None
+    if found is None or found.is_empty():
+        st.caption("Esta persona no tiene un perfil de OpenAlex vinculado.")
+        return
+    author = found.row(0, named=True)
+
+    with st.container(horizontal=True, gap="small"):
+        st.metric("Trabajos en OpenAlex", f"{author['works_count']:,}", border=True)
+        st.metric("Citas", f"{author['cited_by_count']:,}", border=True)
+        st.metric(
+            "Índice h",
+            author["h_index"],
+            border=True,
+            help="h trabajos con al menos h citas cada uno.",
+        )
+        st.metric(
+            "Índice i10",
+            author["i10_index"],
+            border=True,
+            help="Trabajos con al menos 10 citas.",
+        )
+    if author["topics"]:
+        st.caption(f"Temas según OpenAlex: {author['topics']}")
+
+    years = load_optional("openalex_years")
+    if years is not None:
+        cited = years.filter((pl.col("person") == person) & (pl.col("citations") > 0)).sort("year")
+        if not cited.is_empty():
+            fig = px.bar(
+                cited,
+                x="year",
+                y="citations",
+                color_discrete_sequence=[BLUE],
+                labels={"year": "Año", "citations": "Citas recibidas"},
+                title="Citas recibidas por año",
+            )
+            fig.update_layout(height=280)
+            show(fig)
+
+    works = load_optional("openalex_works")
+    top = (
+        works.filter(pl.col("person") == person).sort("cited_by_count", descending=True).head(10)
+        if works is not None
+        else None
+    )
+    if top is not None and not top.is_empty():
+        st.markdown("**Trabajos más citados**")
+        lines = []
+        for work in top.iter_rows(named=True):
+            parts = [f"**{work['title'].translate(MARKDOWN_SPECIAL)}**"]
+            if work["year"]:
+                parts.append(str(work["year"]))
+            parts.append(WORK_TYPES.get(work["type"], work["type"] or "Otro"))
+            if work["venue"]:
+                parts.append(f"*{work['venue'].translate(MARKDOWN_SPECIAL)}*")
+            parts.append(f"{work['cited_by_count']:,} citas")
+            if work["doi"]:
+                parts.append(f"[DOI]({work['doi']})")
+            if work["is_oa"]:
+                parts.append(":material/lock_open: acceso abierto")
+            lines.append("1. " + " · ".join(parts))
+        st.markdown("\n".join(lines))
+    st.caption(
+        f"Fuente: [OpenAlex]({OPENALEX_URL}), datos de dominio público (CC0). OpenAlex cuenta "
+        "todo lo que tiene indexado, no solo lo registrado en el sitio del CIC, así que sus "
+        "cifras pueden diferir de las demás pestañas. Si un perfil está mal vinculado, avísanos."
     )
 
 
