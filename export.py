@@ -592,6 +592,34 @@ def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
     )
 
 
+def project_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    """Títulos de los proyectos del personal investigador, con sus años y el rol de cada uno.
+
+    Un proyecto registrado en varios años (el mismo título, sin importar mayúsculas)
+    aparece una vez con todos sus años. Como en output_titles, quien no tiene laboratorio
+    en el CIC no aparece, y nunca se incluyen títulos de tesis.
+    """
+    staff = d["people"].drop_nulls("lab").select("person_id", "person")
+    title = pl.col("title").str.strip_chars()
+    return (
+        d["project_members"]
+        .join(d["projects"].select("project_id", "title", "year"), on="project_id")
+        .join(staff, on="person_id")
+        .filter(title.str.len_chars() > 0)
+        .with_columns(key=title.str.to_lowercase(), role=pl.col("role").fill_null("Indefinido"))
+        .group_by("person", "key", "role")
+        # Entre variantes de escritura, la del registro más reciente; el título desempata
+        # para que la elegida no cambie entre exportaciones.
+        .agg(
+            title=title.sort_by(["year", title], descending=[True, False], nulls_last=True).first(),
+            years=pl.col("year").drop_nulls().unique().sort(),
+        )
+        .with_columns(last=pl.col("years").list.max())
+        .sort(["person", "last", "title"], descending=[False, True, False], nulls_last=True)
+        .select("person", "title", "years", "role")
+    )
+
+
 def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     """Todas las tablas agregadas a partir de las tablas a nivel de registro."""
     # Un año futuro es un error de captura: no debe mover totales ni tendencias. Sus
@@ -626,6 +654,7 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
         "venues": venues(d),
         "person_venues": person_venues(d, profiles["people"].select("person")),
         "output_titles": output_titles(d),
+        "project_titles": project_titles(d),
         **term_tables(
             docs["docs"],
             docs["doc_labs"],

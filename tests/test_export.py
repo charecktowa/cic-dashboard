@@ -15,20 +15,26 @@ def test_every_table_is_built(tables: dict[str, pl.DataFrame]) -> None:
     assert not empty, f"tablas vacías: {empty}"
 
 
-def test_only_product_titles_are_published(
+def test_only_staff_titles_are_published(
     catalog: dict[str, pl.DataFrame], tables: dict[str, pl.DataFrame]
 ) -> None:
     products = set(catalog["outputs"]["title"])
-    hidden = set(catalog["theses"]["title"]) | set(catalog["projects"]["title"])
-    # Si se repitieran, un título filtrado pasaría por uno de producto y no se notaría.
-    assert hidden
-    assert not hidden & products
+    projects = set(catalog["projects"]["title"])
+    theses = set(catalog["theses"]["title"])
+    # Si se repitieran, un título filtrado pasaría por uno permitido y no se notaría.
+    assert theses and projects
+    assert not theses & (products | projects)
+    assert not products & projects
+    allowed = {"output_titles": products, "project_titles": projects}
     for name, frame in tables.items():
-        assert "title" not in frame.columns or name == "output_titles", name
+        assert "title" not in frame.columns or name in allowed, name
+        # Los títulos de tesis nunca salen; los de proyectos, solo en project_titles.
+        hidden = theses | (set() if name == "project_titles" else projects)
         for column in frame.select(pl.col(pl.String)).columns:
             leaked = hidden & set(frame[column].drop_nulls())
             assert not leaked, f"{name}.{column} publica un título oculto"
-    assert set(tables["output_titles"]["title"]) <= products
+    for name, titles in allowed.items():
+        assert set(tables[name]["title"]) <= titles, name
 
 
 def test_titles_belong_to_research_staff(tables: dict[str, pl.DataFrame]) -> None:
@@ -37,6 +43,7 @@ def test_titles_belong_to_research_staff(tables: dict[str, pl.DataFrame]) -> Non
     assert not externals.is_empty(), "el catálogo falso debe tener un externo con productos"
     staff = set(people.drop_nulls("lab")["person"])
     assert set(tables["output_titles"]["person"]) <= staff
+    assert set(tables["project_titles"]["person"]) <= staff
 
 
 def test_profiles_list_every_publication(tables: dict[str, pl.DataFrame]) -> None:
@@ -199,3 +206,44 @@ def test_person_venues_match_the_catalog(
         check_column_order=False,
         check_dtypes=False,
     )
+
+
+def test_project_titles_group_each_project_once() -> None:
+    def frame(rows: list, columns: list[str]) -> pl.DataFrame:
+        return pl.DataFrame(rows, schema=columns, orient="row")
+
+    d = {
+        "people": frame(
+            [(1, "Ana López", "IA"), (2, "Luis Pérez", None)], ["person_id", "person", "lab"]
+        ),
+        # El mismo proyecto registrado en dos años, una vez en mayúsculas; otro sin año.
+        "projects": frame(
+            [
+                (10, "Redes neuronales", 2023),
+                (11, "REDES NEURONALES", 2021),
+                (12, "Robots móviles", None),
+            ],
+            ["project_id", "title", "year"],
+        ),
+        "project_members": frame(
+            [
+                (10, 1, "Responsable técnico"),
+                (11, 1, "Responsable técnico"),
+                (12, 1, None),
+                (10, 2, "Colaborador"),
+            ],
+            ["project_id", "person_id", "role"],
+        ),
+    }
+    titles = export.project_titles(d).to_dicts()
+    # Luis no tiene laboratorio en el CIC: no aparece.
+    assert titles == [
+        {
+            "person": "Ana López",
+            # Se escribe como en su registro más reciente.
+            "title": "Redes neuronales",
+            "years": [2021, 2023],
+            "role": "Responsable técnico",
+        },
+        {"person": "Ana López", "title": "Robots móviles", "years": [], "role": "Indefinido"},
+    ]
