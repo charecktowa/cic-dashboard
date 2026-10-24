@@ -637,3 +637,13 @@ def test_person_colors_follow_the_order_and_repeat_after_the_palette() -> None:
     people = [f"Persona {i}" for i in range(12)]
     palette = common.PERSON_COLORS
     assert common.person_colors(people) == dict(zip(people, palette + palette[:4], strict=True))
+
+
+@pytest.mark.usefixtures("tables")
+def test_about_links_to_the_repository_and_its_issues() -> None:
+    import common
+
+    app = open_page("acerca")
+    text = " ".join(m.value for m in app.markdown)
+    assert f"]({common.REPO_URL})" in text
+    assert f"]({common.REPO_URL}/issues)" in text
