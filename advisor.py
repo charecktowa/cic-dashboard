@@ -156,19 +156,7 @@ def render_profile(person: str) -> None:
                 )
                 fig.update_layout(height=300, legend={"orientation": "h", "y": -0.25})
                 show(fig)
-        titles = load_optional("output_titles")
-        if titles is not None:
-            works = titles.filter(pl.col("person") == person).sort(
-                "year", descending=True, nulls_last=True
-            )
-            if not works.is_empty():
-                st.markdown("**Publicaciones en el catálogo del CIC**")
-                st.markdown("\n".join(catalog_lines(works.head(5))))
-                if works.height > 5:
-                    with st.expander(f"Ver las {works.height} publicaciones del catálogo"):
-                        st.markdown("\n".join(catalog_lines(works.head(30))))
-                        if works.height > 30:
-                            st.caption(f"Se muestran las 30 más recientes de {works.height}.")
+        render_catalog_titles(person)
     with by_year:
         if per_year.is_empty():
             st.caption("Sin artículos ni congresos con año en el catálogo.")
@@ -239,6 +227,26 @@ def render_profile(person: str) -> None:
   en el comité. Útil para pensar en un posible codirector.
 """
     )
+
+
+def render_catalog_titles(person: str) -> None:
+    """Las 5 publicaciones más recientes del catálogo del CIC y, desplegables, hasta 30."""
+    titles = load_optional("output_titles")
+    works = (
+        titles.filter(pl.col("person") == person).sort("year", descending=True, nulls_last=True)
+        if titles is not None
+        else None
+    )
+    if works is None or works.is_empty():
+        return
+    st.markdown("**Publicaciones en el catálogo del CIC**")
+    st.markdown("\n".join(catalog_lines(works.head(5))))
+    if works.height <= 5:
+        return
+    with st.expander(f"Ver las {works.height} publicaciones del catálogo"):
+        st.markdown("\n".join(catalog_lines(works.head(30))))
+        if works.height > 30:
+            st.caption(f"Se muestran las 30 más recientes de {works.height}.")
 
 
 def render_openalex(person: str) -> None:

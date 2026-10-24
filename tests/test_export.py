@@ -19,7 +19,8 @@ def test_only_product_titles_are_published(
     products = set(catalog["outputs"]["title"])
     hidden = set(catalog["theses"]["title"]) | set(catalog["projects"]["title"])
     # Si se repitieran, un título filtrado pasaría por uno de producto y no se notaría.
-    assert hidden and not hidden & products
+    assert hidden
+    assert not hidden & products
     for name, frame in tables.items():
         assert "title" not in frame.columns or name == "output_titles", name
         for column in frame.select(pl.col(pl.String)).columns:
