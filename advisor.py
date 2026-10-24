@@ -51,6 +51,8 @@ WORK_COLORS = {
     "Comités tutoriales": ORANGE,
     "Proyectos": PURPLE,
 }
+# Revistas y congresos que se listan en "Dónde publica".
+VENUES_SHOWN = 15
 # Cómo se compara una persona con el resto del personal investigador.
 STANDING = {
     "theses": "Tesis en que participa",
@@ -98,10 +100,11 @@ def render_profile(person: str) -> None:
 
     st.caption(profile["lab"] or "Sin laboratorio en el CIC (participa como persona externa)")
     render_cards(profile, per_year)
-    overview, by_year, topics, standing, publications = st.tabs(
+    overview, by_year, venues, topics, standing, publications = st.tabs(
         [
             "Panorama",
             "Producción por año",
+            "Dónde publica",
             "Temas y colaboración",
             "Su lugar en el CIC",
             "Publicaciones (OpenAlex)",
@@ -111,6 +114,8 @@ def render_profile(person: str) -> None:
         render_overview(person, profile)
     with by_year:
         render_by_year(person, per_year)
+    with venues:
+        render_venues(person)
     with topics:
         render_topics(person)
     with standing:
@@ -121,6 +126,8 @@ def render_profile(person: str) -> None:
         """
 - **¿A qué dedica su trabajo?** compara artículos en revista, trabajos en congreso, tesis que
   dirige (como Director 1 o 2), comités tutoriales y proyectos.
+- **Dónde publica**: revistas y congresos de sus artículos en el catálogo del CIC; las
+  variantes de escritura de un mismo nombre se cuentan juntas.
 - **Temas característicos**: términos de los títulos de sus tesis dirigidas, artículos,
   congresos y proyectos que esta persona usa más que el promedio del CIC.
 - **Con quién coincide**: personas que participaron en las mismas tesis, como directores o
@@ -229,6 +236,49 @@ def render_by_year(person: str, per_year: pl.DataFrame) -> None:
     st.caption(
         "Las tesis no tienen año en el catálogo del CIC, así que no pueden ir en esta línea "
         "de tiempo; sus totales están en **Panorama**."
+    )
+
+
+def render_venues(person: str) -> None:
+    """Las revistas y congresos donde más publica, según el catálogo del CIC."""
+    venues = load_optional("person_venues")
+    if venues is None:
+        st.caption("Esta instantánea de datos todavía no incluye las revistas de cada persona.")
+        return
+    top = (
+        venues.filter(pl.col("person") == person)
+        .group_by("venue")
+        .agg(
+            kind=pl.col("kind").sort_by("outputs").last(),
+            outputs=pl.sum("outputs"),
+            first=pl.min("first"),
+            last=pl.max("last"),
+        )
+        .sort("outputs", "venue", descending=[True, False])
+        .head(VENUES_SHOWN)
+    )
+    if top.is_empty():
+        st.caption("Sin artículos ni congresos con revista registrada en el catálogo del CIC.")
+        return
+    fig = px.bar(
+        top,
+        x="outputs",
+        y="venue",
+        color="kind",
+        orientation="h",
+        color_discrete_map=KIND_COLORS,
+        hover_data={"first": True, "last": True},
+        labels=LABELS,
+    )
+    fig.update_yaxes(categoryorder="total ascending")
+    fig.update_layout(
+        height=24 * top.height + 120,
+        legend={"orientation": "h", "y": 1.02, "yanchor": "bottom"},
+    )
+    show(fig)
+    st.caption(
+        f"Sus {top.height} revistas y congresos con más productos en el catálogo del CIC. "
+        "Pasa el cursor sobre una barra para ver su primer y último año."
     )
 
 
