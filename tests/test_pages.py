@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import math
 from pathlib import Path
 
 import polars as pl
@@ -567,15 +568,26 @@ def test_load_rereads_a_table_when_its_file_changes(
     assert common.load("prueba")["v"].to_list() == [2]
 
 
+def expected_terms(where: str, app: AppTest) -> pl.DataFrame:
+    """Los términos que la gráfica debe dibujar, con su lift."""
+    import common
+
+    if where == "perfil":
+        counts = common.load("term_person").filter(pl.col("person") == PERSON_WITH_TERMS)
+        return common.distinctive(counts.select("term", "titles"), 12)
+    return common.load("signature").filter(pl.col("lab") == app.selectbox[0].value)
+
+
+# En el catálogo falso, solo una persona externa usa términos más que el promedio.
+PERSON_WITH_TERMS = "Externa 1"
+
+
 @pytest.mark.usefixtures("tables")
 @pytest.mark.parametrize("where", ["laboratorios", "perfil"])
 def test_distinctive_terms_label_their_lift_on_a_fixed_scale(where: str) -> None:
-    import math
-
     import common
 
-    # En el catálogo falso, solo una persona externa usa términos más que el promedio.
-    app = render_profile_app("Externa 1") if where == "perfil" else open_page(where)
+    app = render_profile_app(PERSON_WITH_TERMS) if where == "perfil" else open_page(where)
     bars = [
         (spec, trace)
         for spec in chart_specs(app)
@@ -584,8 +596,13 @@ def test_distinctive_terms_label_their_lift_on_a_fixed_scale(where: str) -> None
     ]
     assert len(bars) == 1, where
     spec, trace = bars[0]
-    # Cada barra dice su lift; el color usa su logaritmo en un rango igual para todos.
-    assert trace["text"]
+    lifts = dict(expected_terms(where, app).select("term", "lift").iter_rows())
+    assert sorted(trace["y"]) == sorted(lifts)
+    # Cada barra dice su lift, y su color es el logaritmo del lift entre ×1 y ×LIFT_MAX.
+    expected = [lifts[term] for term in trace["y"]]
+    assert numbers(trace["text"]) == pytest.approx(expected)
+    shades = [math.log10(min(max(lift, 1), common.LIFT_MAX)) for lift in expected]
+    assert numbers(trace["marker"]["color"]) == pytest.approx(shades)
     axis = spec["layout"]["coloraxis"]
     assert (axis["cmin"], axis["cmax"]) == (0, math.log10(common.LIFT_MAX))
     assert axis["showscale"] is False
@@ -607,14 +624,14 @@ def test_lab_members_keep_one_color_in_both_charts() -> None:
     # Cada persona: una barra de tesis y una de productos, del mismo color.
     assert sorted(colors) == sorted(members)
     assert all(len(drawn) == 1 for drawn in colors.values())
-    shown = [drawn.pop() for drawn in colors.values()]
-    assert len(set(shown)) == min(len(members), len(common.PERSON_COLORS))
+    # Los colores siguen el orden de las filas: las trazas van en ese orden.
+    rows = list(dict.fromkeys(trace["name"] for trace in traces))
+    assert {person: drawn.pop() for person, drawn in colors.items()} == common.person_colors(rows)
 
 
-def test_person_colors_repeat_only_after_the_palette() -> None:
+def test_person_colors_follow_the_order_and_repeat_after_the_palette() -> None:
     import common
 
     people = [f"Persona {i}" for i in range(12)]
-    colors = list(common.person_colors(people).values())
-    assert colors[:8] == common.PERSON_COLORS
-    assert colors[8:] == common.PERSON_COLORS[:4]
+    palette = common.PERSON_COLORS
+    assert common.person_colors(people) == dict(zip(people, palette + palette[:4], strict=True))
