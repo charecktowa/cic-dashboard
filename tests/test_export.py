@@ -324,9 +324,10 @@ def test_venue_spellings_share_a_key() -> None:
     outputs = pl.DataFrame(
         {
             "product_id": [1, 2, 3, 4],
+            # La forma minoritaria va primero: así no basta con mostrar la primera.
             "venue": [
-                "Journal of Intelligent & Fuzzy Systems",
                 "Journal of Intelligent and Fuzzy Systems",
+                "Journal of Intelligent & Fuzzy Systems",
                 "Journal of Intelligent & Fuzzy Systems",
                 "IEEE ROC&C 2014",
             ],
@@ -338,4 +339,5 @@ def test_venue_spellings_share_a_key() -> None:
     # Dentro de una sigla, "&" no se vuelve "and".
     assert keys[3] == "ieee roc c 2014"
     # Se muestra con la forma más frecuente.
-    assert names.filter(pl.col("venue_key") == keys[0])["venue"][0] == outputs["venue"][0]
+    shown = names.filter(pl.col("venue_key") == keys[0])["venue"][0]
+    assert shown == "Journal of Intelligent & Fuzzy Systems"
