@@ -14,7 +14,6 @@ from common import (
     ROLE_COLORS,
     ROLES,
     TEAL,
-    TEAL_SCALE,
     distinctive,
     every_year,
     explain,
@@ -24,6 +23,7 @@ from common import (
     load,
     load_optional,
     show,
+    show_terms,
     show_venues,
     sparkline_help,
     year_axis,
@@ -187,7 +187,8 @@ def render_profile(person: str) -> None:
 - **Proyectos**: los proyectos de investigación registrados en el sitio del CIC en que
   participa, con sus años y su rol (responsable técnico o colaborador).
 - **Temas característicos**: términos de los títulos de sus tesis dirigidas, artículos,
-  congresos y proyectos que esta persona usa más que el promedio del CIC.
+  congresos y proyectos que esta persona usa más que el promedio del CIC. La etiqueta "×N"
+  dice cuántas veces más, y el color es más intenso cuanto mayor es.
 - **Con quién coincide**: personas que participaron en las mismas tesis, como directores o
   en el comité. Útil para pensar en un posible codirector.
 - **Su lugar en el CIC**: su posición entre el personal investigador con laboratorio en el
@@ -414,18 +415,7 @@ def render_topics(person: str) -> None:
         if terms.is_empty():
             st.caption("Sin títulos suficientes para calcular temas.")
         else:
-            fig = px.bar(
-                terms,
-                x="titles",
-                y="term",
-                orientation="h",
-                color="lift",
-                color_continuous_scale=TEAL_SCALE,
-                hover_data={"lift": ":.1f", "score": False},
-                labels=LABELS,
-            )
-            fig.update_layout(height=340, coloraxis_showscale=False)
-            show(fig)
+            show_terms(terms, "titles", height=340)
     with right:
         st.markdown("**Con quién coincide en tesis**")
         pairs = load("person_pairs").filter(pl.col("person") == person).sort("theses")

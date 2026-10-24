@@ -4,19 +4,18 @@ import streamlit as st
 
 from advisor import profile_link
 from common import (
-    BLUE,
     KIND_COLORS,
     LAB_METRICS,
     LABELS,
-    TEAL,
-    TEAL_SCALE,
     every_year,
     explain,
     fmt_share,
     footer,
     lab_colors,
     load,
+    person_colors,
     show,
+    show_terms,
     show_venues,
     sparkline_help,
     year_axis,
@@ -121,21 +120,11 @@ with tab_terms:
     if terms.is_empty():
         st.info("Este laboratorio tiene muy pocos títulos para calcular temas distintivos.")
     else:
-        fig = px.bar(
-            terms,
-            x="here",
-            y="term",
-            orientation="h",
-            color="lift",
-            color_continuous_scale=TEAL_SCALE,
-            hover_data={"everywhere": True, "lift": ":.1f", "score": False},
-            labels=LABELS,
-        )
-        fig.update_layout(height=22 * terms.height + 100)
-        show(fig)
+        show_terms(terms, "here", height=22 * terms.height + 100)
         st.caption(
             "Términos frecuentes en los títulos de este laboratorio y raros en el resto del "
-            "CIC. El color indica cuántas veces más que el promedio aparece cada término."
+            "CIC. La etiqueta dice cuántas veces más que el promedio aparece cada término, y "
+            "el color es más intenso cuanto más lo distingue."
         )
 with tab_people:
     members = people.filter(pl.col("lab") == lab).sort("director_1")
@@ -153,8 +142,9 @@ with tab_people:
             y="person",
             facet_col="what",
             orientation="h",
-            color="what",
-            color_discrete_sequence=[TEAL, BLUE],
+            # Un color por persona: sus dos barras, en filas alineadas, se leen como suyas.
+            color="person",
+            color_discrete_map=person_colors(members["person"].to_list()),
             labels={**LABELS, "n": "", "what": ""},
         )
         fig.update_xaxes(matches=None)
