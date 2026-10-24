@@ -5,6 +5,7 @@ import http.client
 import io
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -203,6 +204,9 @@ def test_fetch_counts_every_work_by_venue(
     # Los trabajos de esta persona, menos las tesis, que nunca se publican.
     assert "author.id%3AA9" in grouped.full_url
     assert "dissertation" in grouped.full_url
+    # Solo lugares donde se publica: sin repositorios como arXiv o SSRN.
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(grouped.full_url).query)
+    assert "primary_location.source.type:journal|conference|book series" in query["filter"][0]
 
 
 def test_match_compares_each_id_of_a_split_profile(

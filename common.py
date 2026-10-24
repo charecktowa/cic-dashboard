@@ -110,9 +110,21 @@ LAB_METRICS = [
 ]
 
 
-@st.cache_data
 def load(name: str) -> pl.DataFrame:
-    return pl.read_parquet(DATA / f"{name}.parquet")
+    """Una tabla de la instantánea en data/.
+
+    Se vuelve a leer en cuanto su archivo cambia: copiar un data/ nuevo al servidor basta,
+    sin reiniciar la app.
+    """
+    path = DATA / f"{name}.parquet"
+    return read_parquet(path, path.stat().st_mtime_ns)
+
+
+# Una entrada por tabla y versión; las de versiones viejas salen al llegar a este límite.
+@st.cache_data(max_entries=100)
+def read_parquet(path: Path, version: int) -> pl.DataFrame:
+    """Lee un Parquet; `version` (su fecha de modificación) solo distingue la caché."""
+    return pl.read_parquet(path)
 
 
 def load_optional(name: str) -> pl.DataFrame | None:
@@ -138,7 +150,6 @@ def assign_lab_colors(labs: list[str]) -> dict[str, str]:
     return colors
 
 
-@st.cache_data
 def lab_colors() -> dict[str, str]:
     """Un color estable por laboratorio: el mismo en todas las gráficas de la app."""
     return assign_lab_colors(load("lab_stats")["lab"].to_list())
@@ -362,7 +373,6 @@ def match(idea: str) -> tuple[list[str], pl.DataFrame, pl.DataFrame]:
     return recognized, scale(labs), scale(people)
 
 
-@st.cache_data
 def rising_terms(window: int, min_titles: int) -> pl.DataFrame:
     """Cambio en la proporción de títulos con cada término entre dos ventanas."""
     period = (
