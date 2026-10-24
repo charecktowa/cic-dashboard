@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -116,11 +117,11 @@ def match() -> None:
     for person in sorted(set(people) - reviewed):
         rows.append(propose(person))
         print(f"{rows[-1]['status']:>16}  {person}  →  {rows[-1].get('display_name', '')}")
-    # Dos personas del CIC con el mismo autor de OpenAlex: al menos una está mal.
-    ids = [row.get("openalex_ids") for row in rows]
+    # Dos personas del CIC con un mismo autor de OpenAlex: al menos una está mal. Una fila
+    # puede llevar varios ids, así que se cuentan uno por uno.
+    claims = Counter(author_id for row in rows for author_id in set(split_ids(row)))
     for row in rows:
-        duplicated = row.get("openalex_ids") and ids.count(row["openalex_ids"]) > 1
-        if duplicated and row["status"] != REVIEWED:
+        if row["status"] != REVIEWED and any(claims[i] > 1 for i in split_ids(row)):
             row["status"] = "revisar"
     with MAPPING.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDS)
@@ -150,6 +151,11 @@ def propose(person: str) -> dict[str, Any]:
         "institution": institution,
         "status": "auto" if confident else "revisar",
     }
+
+
+def split_ids(row: dict[str, Any]) -> list[str]:
+    """Los ids de OpenAlex de una fila: una persona partida en varios perfiles lleva "A1|A2"."""
+    return [i.strip() for i in (row.get("openalex_ids") or "").split("|") if i.strip()]
 
 
 def read_mapping() -> list[dict[str, str]]:
@@ -186,7 +192,7 @@ def fetch() -> None:
     for row in mapping:
         person = row["person"]
         # Una persona puede estar partida en varios perfiles de OpenAlex: se suman.
-        ids = [i.strip() for i in row["openalex_ids"].split("|") if i.strip()]
+        ids = split_ids(row)
         profiles = [get(f"/authors/{author_id}") for author_id in ids]
         stats = [p.get("summary_stats") or {} for p in profiles]
         topics = [t["display_name"] for p in profiles for t in (p.get("topics") or [])[:5]]

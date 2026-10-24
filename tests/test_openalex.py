@@ -113,6 +113,15 @@ def test_calls_are_spaced_out(api: FakeApi, monkeypatch: pytest.MonkeyPatch) -> 
     assert 0.1 < pause <= 0.2
 
 
+# Un candidato que match aceptaría como "auto" (nombre y afiliación al IPN): si queda en
+# "revisar", es solo porque su id choca con el de otra fila.
+CONFIDENT_LUIS = {
+    "id": "https://openalex.org/A9",
+    "display_name": "Luis Pérez",
+    "last_known_institutions": [{"display_name": "Instituto Politécnico Nacional"}],
+}
+
+
 def test_match_keeps_rows_reviewed_by_hand(
     api: FakeApi, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -128,7 +137,7 @@ def test_match_keeps_rows_reviewed_by_hand(
     monkeypatch.setattr(openalex, "DATA", tmp_path)
     monkeypatch.setattr(openalex, "MAPPING", mapping)
     # OpenAlex propone para Luis el mismo autor que Ana ya tiene corregido.
-    api.replies = [{"results": [{"id": "https://openalex.org/A9", "display_name": "L. Pérez"}]}]
+    api.replies = [{"results": [CONFIDENT_LUIS]}]
 
     openalex.match()
 
@@ -174,3 +183,26 @@ def test_fetch_counts_every_work_by_venue(
     grouped = next(r for r in api.requests if "group_by" in r.full_url)
     # Todos sus trabajos menos las tesis, que nunca se publican.
     assert "dissertation" in grouped.full_url
+
+
+def test_match_compares_each_id_of_a_split_profile(
+    api: FakeApi, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pl.DataFrame({"person": ["Ana López", "Luis Pérez"], "lab": ["IA", "IA"]}).write_parquet(
+        tmp_path / "people.parquet"
+    )
+    mapping = tmp_path / "openalex_authors.csv"
+    # Ana está partida en dos perfiles de OpenAlex.
+    mapping.write_text(
+        "person,openalex_ids,display_name,works_count,institution,status\n"
+        "Ana López,A7|A9,Ana López,12,Instituto Politécnico Nacional,corregido\n"
+    )
+    monkeypatch.setattr(openalex, "DATA", tmp_path)
+    monkeypatch.setattr(openalex, "MAPPING", mapping)
+    api.replies = [{"results": [CONFIDENT_LUIS]}]
+
+    openalex.match()
+
+    rows = {row["person"]: row for row in openalex.read_mapping()}
+    assert rows["Luis Pérez"]["status"] == "revisar"
+    assert rows["Ana López"]["status"] == "corregido"
