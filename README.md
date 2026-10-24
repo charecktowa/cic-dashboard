@@ -64,8 +64,8 @@ El grupo `export` añade `psycopg`; la app no lo necesita y la imagen no lo inst
 ## 1b. Métricas y publicaciones de OpenAlex (opcional)
 
 `openalex.py` vincula a cada persona investigadora con su perfil de
-[OpenAlex](https://openalex.org) y trae citas, índice h, citas por año y sus trabajos más
-citados. Los datos de OpenAlex son de dominio público (CC0). Corre en tu máquina, después de
+[OpenAlex](https://openalex.org) y trae citas, índice h, citas por año, en qué revistas y
+congresos publica y sus trabajos más citados. Los datos de OpenAlex son de dominio público (CC0). Corre en tu máquina, después de
 `export.py`; el VPS nunca llama a OpenAlex.
 
 Si tienes una [llave gratuita de OpenAlex](https://openalex.org/settings/api-key), ponla en
