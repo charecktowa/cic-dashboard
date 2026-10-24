@@ -146,6 +146,17 @@ def test_year_axis_marks_every_year() -> None:
     assert list(fig.layout.xaxis.tickvals) == [2020, 2021]
     assert fig.layout.xaxis.tickangle == -60
 
+    # Nunca más de 20 marcas, el último año siempre marcado y sin dos marcas pegadas.
+    for n in range(1, 200):
+        years = list(range(1900, 1900 + n))
+        fig = go.Figure()
+        common.year_axis(fig, years)
+        ticks = list(fig.layout.xaxis.tickvals)
+        assert len(ticks) <= 20, n
+        assert ticks[-1] == years[-1], n
+        gaps = [b - a for a, b in zip(ticks, ticks[1:], strict=False)]
+        assert n <= 20 or min(gaps) > 1, n
+
     empty = go.Figure()
     common.year_axis(empty, [])
     assert empty.layout.xaxis.tickmode is None

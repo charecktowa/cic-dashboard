@@ -18,9 +18,9 @@ from common import (
     explain,
     load,
     load_optional,
-    number,
     show,
     year_axis,
+    year_range,
 )
 
 PURPLE = "#9b7fd9"
@@ -173,17 +173,7 @@ def render_profile(person: str) -> None:
         if per_year.is_empty():
             st.caption("Sin artículos ni congresos con año en el catálogo.")
         else:
-            first = int(number(per_year["year"].min()))
-            last = int(number(per_year["year"].max()))
-            if first < last:
-                control, _ = st.columns([3, 2])
-                first, last = control.slider(
-                    "Años",
-                    first,
-                    last,
-                    (max(first, last - 19), last),
-                    key=f"years-{person}",
-                )
+            first, last = year_range(per_year["year"], key=f"years-{person}")
             scoped = per_year.filter(pl.col("year").is_between(first, last))
             fig = px.bar(
                 scoped.sort("year"),
