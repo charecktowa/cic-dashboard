@@ -382,6 +382,14 @@ def test_profile_lists_where_the_person_publishes() -> None:
     assert bars, "el perfil debe dibujar dónde publica"
     # Pocas revistas en el catálogo falso: caben todas, así que suman todos sus productos.
     assert sum(sum(numbers(trace["x"])) for trace in bars) == outputs
+    # Una revista con artículos y congresos muestra los dos tipos, no solo el mayoritario.
+    by_kind = (
+        common.load("person_venues")
+        .filter(pl.col("person") == "Persona 1")
+        .group_by("kind")
+        .agg(pl.sum("outputs"))
+    )
+    assert {trace["name"]: sum(numbers(trace["x"])) for trace in bars} == dict(by_kind.iter_rows())
 
 
 def test_long_axis_labels_fit_in_two_lines() -> None:

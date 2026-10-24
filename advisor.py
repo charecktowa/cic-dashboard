@@ -245,28 +245,27 @@ def render_venues(person: str) -> None:
     if venues is None:
         st.caption("Esta instantánea de datos todavía no incluye las revistas de cada persona.")
         return
+    mine = venues.filter(pl.col("person") == person)
     top = (
-        venues.filter(pl.col("person") == person)
-        .group_by("venue")
-        .agg(
-            kind=pl.col("kind").sort_by("outputs").last(),
-            outputs=pl.sum("outputs"),
-            first=pl.min("first"),
-            last=pl.max("last"),
-        )
+        mine.group_by("venue")
+        .agg(pl.sum("outputs"))
         .sort("outputs", "venue", descending=[True, False])
         .head(VENUES_SHOWN)
+        .select("venue")
     )
     if top.is_empty():
         st.caption("Sin artículos ni congresos con revista registrada en el catálogo del CIC.")
         return
+    # Una barra por revista, apilada por tipo: una misma serie, como Lecture Notes in
+    # Computer Science, publica tanto artículos como trabajos de congreso.
     fig = px.bar(
-        top,
+        mine.join(top, on="venue"),
         x="outputs",
         y="venue",
         color="kind",
         orientation="h",
         color_discrete_map=KIND_COLORS,
+        category_orders={"kind": list(KIND_COLORS)},
         hover_data={"first": True, "last": True},
         labels=LABELS,
     )
