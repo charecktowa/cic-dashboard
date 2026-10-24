@@ -2,15 +2,13 @@ import plotly.express as px
 import polars as pl
 import streamlit as st
 
+from advisor import render_publishing_vs_supervising
 from common import (
     LABELS,
     ROLE_COLORS,
     ROLES,
     explain,
     footer,
-    lab_code,
-    lab_codes,
-    lab_colors,
     load,
     show,
 )
@@ -93,33 +91,5 @@ st.markdown(
     "arriba, quien más tesis dirige; el tamaño es el número de proyectos que lidera. "
     "Haz clic en las siglas de un laboratorio, debajo de la gráfica, para ocultarlo."
 )
-# La leyenda lleva siglas y va debajo: con los nombres completos a un lado, en un celular
-# no quedaría ancho para los puntos. El tooltip muestra el nombre completo.
-researchers = people.drop_nulls("lab").with_columns(
-    code=pl.col("lab").map_elements(lab_code, return_dtype=pl.String)
-)
-code_colors = {lab_code(lab): color for lab, color in lab_colors().items()}
-fig = px.scatter(
-    researchers,
-    x="outputs",
-    y="director_1",
-    size="projects_led",
-    size_max=35,
-    color="code",
-    color_discrete_map=code_colors,
-    category_orders={"code": sorted(code_colors)},
-    hover_name="person",
-    hover_data={
-        "code": False,
-        "lab": True,
-        "outputs": True,
-        "director_1": True,
-        "projects_led": True,
-    },
-    labels={**LABELS, "outputs": "Productos (artículos y congresos)"},
-)
-fig.update_traces(marker={"line": {"width": 0.5, "color": "white"}, "sizemin": 4})
-fig.update_layout(height=560, legend={"orientation": "h", "y": -0.15, "yanchor": "top"})
-show(fig)
-lab_codes(researchers["lab"].unique().to_list())
+render_publishing_vs_supervising()
 footer()

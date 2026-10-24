@@ -1,6 +1,7 @@
-"""El perfil de una persona asesora. Lo usan la página Asesores y el buscador."""
+"""El perfil de una persona asesora. Lo usan Perfil de asesor, Asesores y el buscador."""
 
 import plotly.express as px
+import plotly.graph_objects as go
 import polars as pl
 import streamlit as st
 
@@ -17,6 +18,9 @@ from common import (
     distinctive,
     every_year,
     explain,
+    lab_code,
+    lab_codes,
+    lab_colors,
     load,
     load_optional,
     show,
@@ -46,6 +50,13 @@ WORK_COLORS = {
     "Tesis dirigidas": TEAL,
     "Comités tutoriales": ORANGE,
     "Proyectos": PURPLE,
+}
+# Cómo se compara una persona con el resto del personal investigador.
+STANDING = {
+    "theses": "Tesis en que participa",
+    "director_1": "Tesis como Director 1",
+    "outputs": "Productos",
+    "projects_led": "Proyectos que lidera",
 }
 
 
@@ -87,8 +98,14 @@ def render_profile(person: str) -> None:
 
     st.caption(profile["lab"] or "Sin laboratorio en el CIC (participa como persona externa)")
     render_cards(profile, per_year)
-    overview, by_year, topics, publications = st.tabs(
-        ["Panorama", "Producción por año", "Temas y colaboración", "Publicaciones (OpenAlex)"]
+    overview, by_year, topics, standing, publications = st.tabs(
+        [
+            "Panorama",
+            "Producción por año",
+            "Temas y colaboración",
+            "Su lugar en el CIC",
+            "Publicaciones (OpenAlex)",
+        ]
     )
     with overview:
         render_overview(person, profile)
@@ -96,6 +113,8 @@ def render_profile(person: str) -> None:
         render_by_year(person, per_year)
     with topics:
         render_topics(person)
+    with standing:
+        render_standing(person, profile)
     with publications:
         render_openalex(person)
     explain(
@@ -106,6 +125,8 @@ def render_profile(person: str) -> None:
   congresos y proyectos que esta persona usa más que el promedio del CIC.
 - **Con quién coincide**: personas que participaron en las mismas tesis, como directores o
   en el comité. Útil para pensar en un posible codirector.
+- **Su lugar en el CIC**: su posición entre el personal investigador con laboratorio en el
+  CIC; los empates comparten lugar.
 """
     )
 
@@ -249,6 +270,83 @@ def render_topics(person: str) -> None:
             )
             fig.update_layout(height=340)
             show(fig)
+
+
+def render_standing(person: str, profile: dict) -> None:
+    """Su lugar entre el personal investigador del CIC y su punto en publicar vs. dirigir."""
+    if profile["lab"] is None:
+        st.caption(
+            "Esta comparación es entre el personal con laboratorio en el CIC, y esta persona "
+            "participa como externa."
+        )
+        return
+    researchers = load("people").drop_nulls("lab")
+    with st.container(horizontal=True, gap="small"):
+        for column, label in STANDING.items():
+            place = researchers.filter(pl.col(column) > profile[column]).height + 1
+            st.metric(label, f"#{place} de {researchers.height}", border=True)
+    st.markdown("**Publicar vs. dirigir**")
+    render_publishing_vs_supervising(highlight=person)
+
+
+def render_publishing_vs_supervising(highlight: str | None = None) -> None:
+    """Cada persona investigadora por productos y tesis que dirige; `highlight` resalta a una.
+
+    La leyenda lleva siglas y va debajo: con los nombres completos a un lado, en un celular no
+    quedaría ancho para los puntos. El tooltip muestra el nombre completo.
+    """
+    researchers = (
+        load("people")
+        .drop_nulls("lab")
+        .with_columns(code=pl.col("lab").map_elements(lab_code, return_dtype=pl.String))
+    )
+    colors = lab_colors()
+    code_colors = {lab_code(lab): color for lab, color in colors.items()}
+    fig = px.scatter(
+        researchers,
+        x="outputs",
+        y="director_1",
+        size="projects_led",
+        size_max=35,
+        color="code",
+        color_discrete_map=code_colors,
+        category_orders={"code": sorted(code_colors)},
+        hover_name="person",
+        hover_data={
+            "code": False,
+            "lab": True,
+            "outputs": True,
+            "director_1": True,
+            "projects_led": True,
+        },
+        labels={**LABELS, "outputs": "Productos (artículos y congresos)"},
+    )
+    fig.update_traces(marker={"line": {"width": 0.5, "color": "white"}, "sizemin": 4})
+    me = researchers.filter(pl.col("person") == highlight) if highlight else researchers.clear()
+    if not me.is_empty():
+        fig.update_traces(opacity=0.35)
+        fig.add_trace(
+            go.Scatter(
+                x=me["outputs"],
+                y=me["director_1"],
+                mode="markers+text",
+                text=me["person"],
+                textposition="top center",
+                marker={
+                    "symbol": "star",
+                    "size": 24,
+                    "color": colors[me["lab"][0]],
+                    "line": {"width": 1.5, "color": "white"},
+                },
+                name=highlight,
+                showlegend=False,
+                hovertemplate="<b>%{text}</b><br>Productos: %{x}<br>"
+                "Tesis como Director 1: %{y}<extra></extra>",
+            )
+        )
+    fig.update_layout(height=560, legend={"orientation": "h", "y": -0.15, "yanchor": "top"})
+    show(fig)
+    lab_codes(researchers["lab"].unique().to_list())
 
 
 def render_catalog_titles(person: str) -> None:

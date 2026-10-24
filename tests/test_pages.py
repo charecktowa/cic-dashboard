@@ -282,3 +282,44 @@ def test_publishing_vs_supervising_fits_a_phone() -> None:
     codes = {common.lab_code(lab) for lab in common.lab_colors()}
     assert {trace["name"] for trace in scatter["data"]} <= codes
     assert scatter["layout"]["legend"]["orientation"] == "h"
+
+
+def render_profile_app(person: str) -> AppTest:
+    script = f"""
+import streamlit as st
+from advisor import render_profile
+render_profile({person!r})
+"""
+    app = AppTest.from_string(script, default_timeout=60).run()
+    assert not app.exception, app.exception
+    return app
+
+
+@pytest.mark.usefixtures("tables")
+def test_standing_places_and_highlights_the_person() -> None:
+    import common
+
+    researchers = common.load("people").drop_nulls("lab")
+    me = researchers.filter(pl.col("person") == "Persona 1").row(0, named=True)
+    place = researchers.filter(pl.col("director_1") > me["director_1"]).height + 1
+    app = render_profile_app("Persona 1")
+    card = next(m for m in app.metric if m.label == "Tesis como Director 1" and "#" in m.value)
+    assert card.value == f"#{place} de {researchers.height}"
+    stars = [
+        trace
+        for spec in chart_specs(app)
+        for trace in spec["data"]
+        if trace.get("marker", {}).get("symbol") == "star"
+    ]
+    assert [trace["name"] for trace in stars] == ["Persona 1"]
+
+
+@pytest.mark.usefixtures("tables")
+def test_standing_explains_why_externals_are_not_ranked() -> None:
+    import common
+
+    external = common.load("people").filter(pl.col("lab").is_null())["person"]
+    assert not external.is_empty(), "el catálogo falso debe tener una persona externa"
+    app = render_profile_app(external[0])
+    assert any("participa como externa" in c.value for c in app.caption)
+    assert not any("#" in m.value for m in app.metric)
