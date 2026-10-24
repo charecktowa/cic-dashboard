@@ -341,3 +341,9 @@ def test_venue_spellings_share_a_key() -> None:
     # Se muestra con la forma más frecuente.
     shown = names.filter(pl.col("venue_key") == keys[0])["venue"][0]
     assert shown == "Journal of Intelligent & Fuzzy Systems"
+
+
+def test_export_without_password_says_where_to_put_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(export.PG, "password", None)
+    with pytest.raises(SystemExit, match="escribe ahí la contraseña"):
+        export.main()
