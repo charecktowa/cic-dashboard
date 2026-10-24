@@ -71,8 +71,10 @@ los instala.
 
 `openalex.py` vincula a cada persona investigadora con su perfil de
 [OpenAlex](https://openalex.org) y trae citas, índice h, citas por año, en qué revistas y
-congresos publica y sus trabajos más citados. Los datos de OpenAlex son de dominio público (CC0). Corre en tu máquina, después de
-`export.py`; el VPS nunca llama a OpenAlex.
+congresos publica y sus trabajos más citados. También cuenta las revistas de todo el CIC y
+de cada laboratorio con una sola consulta por grupo, para que un trabajo con varios autores
+del CIC cuente una vez. Los datos de OpenAlex son de dominio público (CC0). Corre en tu
+máquina, después de `export.py`; el VPS nunca llama a OpenAlex.
 
 Si tienes una [llave gratuita de OpenAlex](https://openalex.org/settings/api-key), ponla en
 `OPENALEX_API_KEY` dentro de `.env`: es opcional y multiplica el presupuesto diario. Se manda

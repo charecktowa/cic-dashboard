@@ -178,8 +178,12 @@ def test_fetch_counts_every_work_by_venue(
         "person,openalex_ids,display_name,works_count,institution,status\n"
         "Ana López,A9,Ana López,12,Instituto Politécnico Nacional,auto\n"
     )
+    pl.DataFrame({"person": ["Ana López"], "lab": ["IA"]}).write_parquet(
+        tmp_path / "people.parquet"
+    )
     monkeypatch.setattr(openalex, "DATA", tmp_path)
     monkeypatch.setattr(openalex, "MAPPING", mapping)
+    ieee = {"key": "https://openalex.org/S1", "key_display_name": "IEEE Access", "count": 7}
     api.replies = [
         {
             "works_count": 12,
@@ -194,10 +198,18 @@ def test_fetch_counts_every_work_by_venue(
             ]
         },
         {"results": []},
+        # Las revistas de todo el CIC y luego las de su laboratorio.
+        {"group_by": [ieee]},
+        {"group_by": [ieee]},
     ]
 
     openalex.fetch()
 
+    cic = pl.read_parquet(tmp_path / "openalex_cic_venues.parquet")
+    assert cic.to_dicts() == [
+        {"lab": None, "venue": "IEEE Access", "works": 7},
+        {"lab": "IA", "venue": "IEEE Access", "works": 7},
+    ]
     venues = pl.read_parquet(tmp_path / "openalex_venues.parquet")
     assert venues.to_dicts() == [{"person": "Ana López", "venue": "IEEE Access", "works": 7}]
     grouped = next(r for r in api.requests if "group_by" in r.full_url)
@@ -230,3 +242,46 @@ def test_match_compares_each_id_of_a_split_profile(
     rows = {row["person"]: row for row in openalex.read_mapping()}
     assert rows["Luis Pérez"]["status"] == "revisar"
     assert rows["Ana López"]["status"] == "corregido"
+
+
+def test_cic_venues_count_a_shared_work_once(
+    api: FakeApi, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pl.DataFrame(
+        {"person": ["Ana López", "Luis Pérez", "Externa"], "lab": ["IA", "Redes", None]}
+    ).write_parquet(tmp_path / "people.parquet")
+    monkeypatch.setattr(openalex, "DATA", tmp_path)
+    mapping = [
+        # Ana está partida en dos perfiles; uno se repite por error en otra fila.
+        {"person": "Ana López", "openalex_ids": "A7|A9"},
+        {"person": "Luis Pérez", "openalex_ids": "A1|A9"},
+        {"person": "Externa", "openalex_ids": "A5"},
+    ]
+    api.replies = [{"group_by": []}] * 3
+
+    openalex.cic_venue_counts(mapping)
+
+    # Una consulta por grupo, cada una con los ids de todo el grupo y sin repetir: OpenAlex
+    # cuenta una vez el trabajo que firman varios de ellos.
+    filters = [
+        urllib.parse.parse_qs(urllib.parse.urlsplit(r.full_url).query)["filter"][0]
+        for r in api.requests
+    ]
+    assert [f.split(",")[0] for f in filters] == [
+        "author.id:A7|A9|A1|A5",
+        "author.id:A7|A9",
+        "author.id:A1|A9",
+    ]
+
+
+def test_cic_venues_refuse_more_ids_than_a_filter_takes(
+    api: FakeApi, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pl.DataFrame({"person": ["Ana López"], "lab": ["IA"]}).write_parquet(
+        tmp_path / "people.parquet"
+    )
+    monkeypatch.setattr(openalex, "DATA", tmp_path)
+    ids = "|".join(f"A{i}" for i in range(openalex.MAX_FILTER_VALUES + 1))
+    with pytest.raises(SystemExit, match="hasta 100"):
+        openalex.cic_venue_counts([{"person": "Ana López", "openalex_ids": ids}])
+    assert not api.requests
