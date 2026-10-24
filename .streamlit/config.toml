@@ -1,0 +1,16 @@
+[server]
+headless = true
+# The app serves charts only; nothing under static/ is published.
+enableStaticServing = false
+
+[client]
+# Hide the developer menu (rerun, settings, source) and tracebacks from visitors.
+toolbarMode = "viewer"
+showErrorDetails = "none"
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#2a9d8f"

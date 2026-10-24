@@ -1,0 +1,30 @@
+[project]
+name = "cic-dashboard"
+version = "0.1.0"
+description = "El CIC en datos: tablero público de la investigación del CIC para estudiantes"
+readme = "README.md"
+authors = [
+    { name = "A. Gutiérrez Alfaro", email = "charecktowa@pm.me" }
+]
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "plotly>=7.1.0",
+    "polars>=2.0.0",
+    "streamlit>=1.66.1",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.2",
+]
+# Only the machine that builds the snapshot talks to Postgres; the VPS does not.
+export = [
+    "psycopg[binary]>=3.3.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N", "PD"]

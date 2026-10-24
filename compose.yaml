@@ -1,0 +1,30 @@
+name: cic-dashboard
+
+services:
+  dashboard:
+    build: .
+    image: cic-dashboard:latest
+    container_name: cic-dashboard
+    restart: unless-stopped
+    # La instantánea se monta en solo lectura: actualizarla es copiar data/ y reiniciar.
+    volumes:
+      - ./data:/app/data:ro
+    # Sin puertos publicados: Nginx Proxy Manager llega por la red compartida.
+    networks:
+      - proxy
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      HOME: /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+
+networks:
+  proxy:
+    external: true
+    # El nombre de la red de Nginx Proxy Manager; cámbialo en .env si es otro.
+    name: ${PROXY_NETWORK:-npm_default}
