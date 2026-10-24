@@ -295,32 +295,24 @@ def render_publishing_vs_supervising(highlight: str | None = None) -> None:
     La leyenda lleva siglas y va debajo: con los nombres completos a un lado, en un celular no
     quedaría ancho para los puntos. El tooltip muestra el nombre completo.
     """
-    researchers = (
-        load("people")
-        .drop_nulls("lab")
-        .with_columns(code=pl.col("lab").map_elements(lab_code, return_dtype=pl.String))
-    )
+    researchers = load("people").drop_nulls("lab")
     colors = lab_colors()
-    code_colors = {lab_code(lab): color for lab, color in colors.items()}
+    # Cada serie es un laboratorio y solo su nombre en la leyenda se acorta: dos siglas
+    # iguales no juntarían a dos laboratorios en un mismo color.
     fig = px.scatter(
         researchers,
         x="outputs",
         y="director_1",
         size="projects_led",
         size_max=35,
-        color="code",
-        color_discrete_map=code_colors,
-        category_orders={"code": sorted(code_colors)},
+        color="lab",
+        color_discrete_map=colors,
+        category_orders={"lab": sorted(colors, key=lab_code)},
         hover_name="person",
-        hover_data={
-            "code": False,
-            "lab": True,
-            "outputs": True,
-            "director_1": True,
-            "projects_led": True,
-        },
+        hover_data={"lab": True, "outputs": True, "director_1": True, "projects_led": True},
         labels={**LABELS, "outputs": "Productos (artículos y congresos)"},
     )
+    fig.for_each_trace(lambda trace: trace.update(name=lab_code(trace.name)))
     fig.update_traces(marker={"line": {"width": 0.5, "color": "white"}, "sizemin": 4})
     me = researchers.filter(pl.col("person") == highlight) if highlight else researchers.clear()
     if not me.is_empty():

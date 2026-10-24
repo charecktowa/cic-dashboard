@@ -279,8 +279,11 @@ def test_publishing_vs_supervising_fits_a_phone() -> None:
         for spec in chart_specs(open_page("asesores"))
         if spec["data"] and spec["data"][0]["type"] == "scatter"
     )
-    codes = {common.lab_code(lab) for lab in common.lab_colors()}
-    assert {trace["name"] for trace in scatter["data"]} <= codes
+    labs = set(common.load("people").drop_nulls("lab")["lab"])
+    # Una serie por laboratorio, con su sigla en la leyenda: dos siglas iguales no se juntan.
+    assert {trace["legendgroup"] for trace in scatter["data"]} == labs
+    for trace in scatter["data"]:
+        assert trace["name"] == common.lab_code(trace["legendgroup"])
     assert scatter["layout"]["legend"]["orientation"] == "h"
 
 
