@@ -1,7 +1,7 @@
 import polars as pl
 import streamlit as st
 
-from common import CURRENT_YEAR, footer, load, ratio, rising_terms
+from common import CURRENT_YEAR, every_year, footer, load, ratio, rising_terms
 
 st.title("El CIC en datos")
 st.markdown(
@@ -12,11 +12,11 @@ st.markdown(
 )
 
 outputs = load("outputs_by_year").filter(pl.col("lab").is_null())
-per_year = (
+per_year = every_year(
     outputs.filter(pl.col("year").is_between(CURRENT_YEAR - 15, CURRENT_YEAR - 1))
     .group_by("year")
-    .agg(pl.sum("outputs"))
-    .sort("year")
+    .agg(pl.sum("outputs")),
+    "outputs",
 )
 # Una fila que se parte sola: cinco tarjetas en escritorio, dos por fila en un celular.
 with st.container(horizontal=True, gap="small"):

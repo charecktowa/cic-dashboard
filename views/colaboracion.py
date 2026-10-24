@@ -3,7 +3,17 @@ import plotly.graph_objects as go
 import polars as pl
 import streamlit as st
 
-from common import LABELS, ORANGE_SCALE, explain, footer, lab_code, load, show
+from common import (
+    LABELS,
+    ORANGE_SCALE,
+    explain,
+    footer,
+    lab_code,
+    lab_colors,
+    load,
+    show,
+    translucent,
+)
 
 pairs = load("lab_pairs")
 
@@ -91,10 +101,7 @@ min_theses = st.slider("Mostrar solo flujos con al menos estas tesis", 1, 10, 2)
 codir = codir.filter(pl.col("items") >= min_theses)
 left_labs = sorted(codir["lab_a"].unique())
 right_labs = sorted(codir["lab_b"].unique())
-palette = px.colors.qualitative.Set3 + px.colors.qualitative.Pastel
-colors = {
-    lab: palette[i % len(palette)] for i, lab in enumerate(sorted(set(left_labs) | set(right_labs)))
-}
+colors = lab_colors()
 fig = go.Figure(
     go.Sankey(
         node={
@@ -109,9 +116,7 @@ fig = go.Figure(
             "source": [left_labs.index(a) for a in codir["lab_a"]],
             "target": [len(left_labs) + right_labs.index(b) for b in codir["lab_b"]],
             "value": codir["items"].to_list(),
-            "color": [
-                colors[a].replace("rgb", "rgba").replace(")", ",0.45)") for a in codir["lab_a"]
-            ],
+            "color": [translucent(colors[a], 0.45) for a in codir["lab_a"]],
             "hovertemplate": "%{source.customdata} → %{target.customdata}<br>"
             "%{value} tesis<extra></extra>",
         },

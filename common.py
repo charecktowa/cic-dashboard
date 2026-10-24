@@ -143,6 +143,12 @@ def lab_colors() -> dict[str, str]:
     return assign_lab_colors(load("lab_stats")["lab"].to_list())
 
 
+def translucent(color: str, alpha: float) -> str:
+    """Un color "#rrggbb" como rgba, por ejemplo para las bandas de un Sankey."""
+    red, green, blue = (int(color[i : i + 2], 16) for i in (1, 3, 5))
+    return f"rgba({red}, {green}, {blue}, {alpha})"
+
+
 def lab_code(lab: str) -> str:
     """Siglas de un laboratorio: "Robótica y Mecatrónica" → "RyM"."""
     if lab in LAB_CODE_OVERRIDES:
@@ -220,6 +226,31 @@ def year_range(years: pl.Series, key: str) -> tuple[int, int]:
             "Años", first, last, (max(first, last - YEAR_TICKS + 1), last), key=key
         )
     return first, last
+
+
+def every_year(totals: pl.DataFrame, column: str) -> pl.DataFrame:
+    """Los totales de `column` por año, con los años sin nada en cero.
+
+    Una gráfica sin eje, como la miniatura de una tarjeta, pegaría dos años separados por
+    un hueco y parecerían seguidos.
+    """
+    if totals.is_empty():
+        return totals
+    first, last = int(number(totals["year"].min())), int(number(totals["year"].max()))
+    years = pl.DataFrame({"year": range(first, last + 1)}, schema={"year": totals.schema["year"]})
+    return (
+        years.join(totals.select("year", column), on="year", how="left")
+        .with_columns(pl.col(column).fill_null(0))
+        .sort("year")
+    )
+
+
+def sparkline_help(per_year: pl.DataFrame) -> str | None:
+    """Qué años cubre la miniatura de una tarjeta, que no tiene eje."""
+    if per_year.is_empty():
+        return None
+    first, last = int(number(per_year["year"].min())), int(number(per_year["year"].max()))
+    return f"Un valor por año, de {first} a {last}. Los años sin productos cuentan como cero."
 
 
 def explain(markdown: str, label: str = "¿Cómo se calcula?") -> None:
