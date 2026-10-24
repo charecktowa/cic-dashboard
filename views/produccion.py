@@ -190,9 +190,9 @@ if not show_venues(scoped, venue_top):
 explain(
     """
 Las variantes de escritura de una misma revista o congreso (con o sin acentos, mayúsculas,
-"&" o "and") se cuentan como una sola. Cada barra se divide en artículos y congresos. Si
-estás por publicar, esta lista es una buena pista de dónde suelen enviar sus trabajos en tu
-laboratorio.
+"&" o "and") se cuentan como una sola. Con el tipo en **Todos**, cada barra se divide en
+artículos y congresos. Si estás por publicar, esta lista es una buena pista de dónde suelen
+enviar sus trabajos en tu laboratorio.
 """
 )
 footer()
