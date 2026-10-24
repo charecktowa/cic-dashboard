@@ -17,6 +17,7 @@ from common import (
     number,
     ratio,
     show,
+    show_venues,
     year_axis,
 )
 
@@ -184,35 +185,14 @@ scoped = venues.filter(
 )
 if venue_kind != "Todos":
     scoped = scoped.filter(pl.col("kind") == venue_kind)
-top = (
-    scoped.group_by("venue")
-    .agg(
-        kind=pl.col("kind").sort_by("outputs").last(),
-        outputs=pl.sum("outputs"),
-        first=pl.min("first"),
-        last=pl.max("last"),
-    )
-    .sort("outputs", descending=True)
-    .head(venue_top)
-)
-fig = px.bar(
-    top,
-    x="outputs",
-    y="venue",
-    color="kind",
-    orientation="h",
-    color_discrete_map=KIND_COLORS,
-    hover_data={"first": True, "last": True},
-    labels=LABELS,
-)
-fig.update_yaxes(categoryorder="total ascending")
-fig.update_layout(height=22 * top.height + 120, legend={"orientation": "h", "y": 1.05})
-show(fig)
+if not show_venues(scoped, venue_top):
+    st.info("No hay productos con revista o congreso registrado para esta selección.")
 explain(
     """
-Las variantes de escritura de una misma revista o congreso (con o sin acentos, mayúsculas)
-se cuentan como una sola. Si estás por publicar, esta lista es una buena pista de dónde
-suelen enviar sus trabajos en tu laboratorio.
+Las variantes de escritura de una misma revista o congreso (con o sin acentos, mayúsculas,
+"&" o "and") se cuentan como una sola. Cada barra se divide en artículos y congresos. Si
+estás por publicar, esta lista es una buena pista de dónde suelen enviar sus trabajos en tu
+laboratorio.
 """
 )
 footer()

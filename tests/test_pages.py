@@ -499,13 +499,10 @@ def test_profile_lists_theses_by_role() -> None:
         assert f"**{title.translate(MARKDOWN_SPECIAL)}**" in markdown
 
 
-@pytest.mark.usefixtures("tables")
-def test_lab_venues_stack_both_kinds() -> None:
+def assert_venue_chart(app: AppTest, venues: pl.DataFrame) -> None:
+    """La gráfica de revistas de la página dibuja `venues` revista por revista, apilada."""
     import common
 
-    app = open_page("laboratorios")
-    lab = app.selectbox[0].value
-    venues = common.load("venues").filter(pl.col("lab") == lab)
     (chart,) = [
         spec
         for spec in chart_specs(app)
@@ -532,3 +529,21 @@ def test_lab_venues_stack_both_kinds() -> None:
     # Pocas revistas en el catálogo falso: caben todas, así que se compara revista por
     # revista y tipo por tipo.
     assert drawn == expected
+
+
+@pytest.mark.usefixtures("tables")
+def test_lab_venues_stack_both_kinds() -> None:
+    import common
+
+    app = open_page("laboratorios")
+    lab = app.selectbox[0].value
+    assert_venue_chart(app, common.load("venues").filter(pl.col("lab") == lab))
+
+
+@pytest.mark.usefixtures("tables")
+def test_cic_venues_stack_both_kinds() -> None:
+    import common
+
+    # Por omisión, todos los laboratorios: las filas con laboratorio nulo.
+    venues = common.load("venues").filter(pl.col("lab").is_null())
+    assert_venue_chart(open_page("produccion"), venues)
