@@ -754,7 +754,7 @@ def main() -> None:
     if not PG["password"]:
         raise SystemExit(
             "Falta POSTGRES_PASSWORD. Copia .env.example a .env, escribe ahí la contraseña de "
-            "tu base cic_scrape y corre con `uv run --env-file .env --group export python "
+            f"tu base {PG['dbname']} y corre con `uv run --env-file .env --group export python "
             "export.py` (ver README)."
         )
     with export_lock(OUT):

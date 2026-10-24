@@ -345,5 +345,12 @@ def test_venue_spellings_share_a_key() -> None:
 
 def test_export_without_password_says_where_to_put_it(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(export.PG, "password", None)
-    with pytest.raises(SystemExit, match="escribe ahí la contraseña"):
+    monkeypatch.setitem(export.PG, "dbname", "otra_base")
+    with pytest.raises(SystemExit) as stop:
         export.main()
+    message = str(stop.value)
+    # Dónde va la contraseña, cómo cargarla y de qué base: la que está configurada.
+    assert "escribe ahí la contraseña" in message
+    assert "a .env" in message
+    assert "--env-file .env" in message
+    assert "tu base otra_base" in message
