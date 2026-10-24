@@ -235,9 +235,15 @@ def people_profiles(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     )
     authored = (
         d["output_authors"]
-        .join(d["outputs"].select("product_id", "year"), on="product_id")
+        .join(d["outputs"].select("product_id", "year", "kind"), on="product_id")
         .group_by("person_id")
-        .agg(outputs=pl.len(), first_year=pl.min("year"), last_year=pl.max("year"))
+        .agg(
+            outputs=pl.len(),
+            articles=(pl.col("kind") == "Artículo").sum(),
+            conferences=(pl.col("kind") == "Congreso").sum(),
+            first_year=pl.min("year"),
+            last_year=pl.max("year"),
+        )
     )
     led = (
         d["project_members"]
@@ -260,9 +266,9 @@ def people_profiles(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     person_year = (
         d["output_authors"]
         .join(kept, on="person_id")
-        .join(d["outputs"].select("product_id", "year"), on="product_id")
+        .join(d["outputs"].select("product_id", "year", "kind"), on="product_id")
         .drop_nulls("year")
-        .group_by("person", "year")
+        .group_by("person", "year", "kind")
         .agg(outputs=pl.len())
     )
     advisor_roles = (

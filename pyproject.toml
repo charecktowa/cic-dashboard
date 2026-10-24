@@ -35,7 +35,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "N", "PD"]
 
 [tool.ruff.lint.isort]
 # Explícito: la detección automática depende del directorio desde donde corre ruff.
-known-first-party = ["common", "export", "text", "views"]
+known-first-party = ["advisor", "common", "export", "text", "views"]
 
 [tool.mypy]
 python_version = "3.13"
@@ -45,7 +45,7 @@ exclude = ["^\\.venv/"]
 
 [[tool.mypy.overrides]]
 # El código propio siempre debe resolverse; nunca debe volverse `Any` en silencio.
-module = ["common", "export", "text"]
+module = ["advisor", "common", "export", "text"]
 ignore_missing_imports = false
 
 [tool.bandit]

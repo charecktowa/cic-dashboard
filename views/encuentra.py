@@ -3,6 +3,7 @@ import polars as pl
 import streamlit as st
 
 import text
+from advisor import profile_dialog
 from common import LABELS, TEAL_SCALE, explain, footer, load, match, show
 
 EXAMPLES = {
@@ -20,10 +21,6 @@ def use_example() -> None:
     picked = st.session_state.get("example")
     if picked:
         st.session_state["idea"] = EXAMPLES[picked]
-
-
-def open_profile(person: str) -> None:
-    st.session_state["profile"] = person
 
 
 st.title("Encuentra tu laboratorio y tu asesor")
@@ -128,11 +125,9 @@ for column, row in zip(st.columns(3), people.head(3).iter_rows(named=True), stri
         if st.button(
             "Ver perfil completo",
             key=f"open-{row['person']}",
-            icon=":material/arrow_forward:",
-            on_click=open_profile,
-            args=(row["person"],),
+            icon=":material/open_in_full:",
         ):
-            st.switch_page("views/asesores.py")
+            profile_dialog(row["person"])
 
 st.subheader("¿Tu tema está creciendo?")
 trend = (
