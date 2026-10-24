@@ -2,7 +2,6 @@ import plotly.express as px
 import polars as pl
 import streamlit as st
 
-from advisor import render_profile
 from common import (
     LABELS,
     ROLE_COLORS,
@@ -23,30 +22,15 @@ st.title("Asesores")
 st.markdown(
     "Las personas que dirigen tesis y participan en comités tutoriales del CIC. Se incluye a "
     "todo el personal investigador con laboratorio en el CIC y a personas externas que "
-    "participaron en al menos tres tesis. Los nombres y cifras salen del sitio público del CIC."
+    "participaron en al menos tres tesis. Los nombres y cifras salen del sitio público del CIC. "
+    "Aquí se compara a todas; para conocer a una sola, abre su perfil."
 )
 
-# --- Profile ----------------------------------------------------------------
-
-st.subheader("Busca a un asesor o asesora")
-# Ligado a la URL (?persona=...): un perfil se puede compartir o abrir desde otra página.
-person = st.selectbox(
-    "Nombre",
-    people.sort("person")["person"].to_list(),
-    index=None,
-    placeholder="Escribe un nombre o apellido",
-    key="persona",
-    bind="query-params",
+st.page_link(
+    "views/perfil.py",
+    label="Ver el perfil de una persona",
+    icon=":material/person_search:",
 )
-if person is None:
-    st.caption(
-        "Su perfil muestra las tesis que dirige, sus publicaciones, sus temas y con quién "
-        "colabora. ¿No sabes a quién buscar? Mira el ranking de abajo o prueba **Encuentra tu "
-        "lab** con tu idea de tesis."
-    )
-else:
-    st.markdown(f"### {person}")
-    render_profile(person)
 
 # --- Ranking ----------------------------------------------------------------
 

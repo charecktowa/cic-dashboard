@@ -14,6 +14,7 @@ PAGES = [
     "encuentra",
     "laboratorios",
     "asesores",
+    "perfil",
     "temas",
     "colaboracion",
     "produccion",
@@ -255,7 +256,7 @@ def profile_headers(app: AppTest) -> list[str]:
 
 @pytest.mark.usefixtures("tables")
 def test_advisor_search_starts_empty() -> None:
-    app = open_page("asesores")
+    app = open_page("perfil")
     assert not app.exception, app.exception
     assert app.selectbox(key="persona").value is None
     assert not profile_headers(app)
@@ -264,7 +265,7 @@ def test_advisor_search_starts_empty() -> None:
 @pytest.mark.usefixtures("tables")
 @pytest.mark.parametrize(("name", "shown"), [("Persona 3", True), ("Nadie", False)])
 def test_advisor_profile_opens_from_the_url(name: str, shown: bool) -> None:
-    app = open_page("asesores", persona=name)
+    app = open_page("perfil", persona=name)
     assert not app.exception, app.exception
     assert profile_headers(app) == ([f"### {name}"] if shown else [])
 
