@@ -597,8 +597,10 @@ def project_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
     """Títulos de los proyectos del personal investigador, con sus años y el rol de cada uno.
 
     Un proyecto registrado en varios años (el mismo título, sin importar mayúsculas)
-    aparece una vez con todos sus años. Como en output_titles, quien no tiene laboratorio
-    en el CIC no aparece, y nunca se incluyen títulos de tesis.
+    aparece una vez con todos sus años, y con el título y el rol de su registro más
+    reciente: alguien puede pasar de colaborador a responsable técnico. Como en
+    output_titles, quien no tiene laboratorio en el CIC no aparece, y nunca se incluyen
+    títulos de tesis.
     """
     staff = d["people"].drop_nulls("lab").select("person_id", "person")
     title = pl.col("title").str.strip_chars()
@@ -608,11 +610,14 @@ def project_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
         .join(staff, on="person_id")
         .filter(title.str.len_chars() > 0)
         .with_columns(key=title.str.to_lowercase(), role=pl.col("role").fill_null("Indefinido"))
-        .group_by("person", "key", "role")
-        # Entre variantes de escritura, la del registro más reciente; el título desempata
-        # para que la elegida no cambie entre exportaciones.
+        .group_by("person", "key")
+        # Título y rol del registro más reciente; el propio valor desempata para que el
+        # elegido no cambie entre exportaciones.
         .agg(
             title=title.sort_by(["year", title], descending=[True, False], nulls_last=True).first(),
+            role=pl.col("role")
+            .sort_by(["year", "role"], descending=[True, False], nulls_last=True)
+            .first(),
             years=pl.col("year").drop_nulls().unique().sort(),
         )
         .with_columns(last=pl.col("years").list.max())

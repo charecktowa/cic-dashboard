@@ -216,7 +216,8 @@ def test_project_titles_group_each_project_once() -> None:
         "people": frame(
             [(1, "Ana López", "IA"), (2, "Luis Pérez", None)], ["person_id", "person", "lab"]
         ),
-        # El mismo proyecto registrado en dos años, una vez en mayúsculas; otro sin año.
+        # El mismo proyecto registrado en dos años, una vez en mayúsculas y con otro rol;
+        # otro sin año.
         "projects": frame(
             [
                 (10, "Redes neuronales", 2023),
@@ -228,7 +229,7 @@ def test_project_titles_group_each_project_once() -> None:
         "project_members": frame(
             [
                 (10, 1, "Responsable técnico"),
-                (11, 1, "Responsable técnico"),
+                (11, 1, "Colaborador"),
                 (12, 1, None),
                 (10, 2, "Colaborador"),
             ],
@@ -240,7 +241,7 @@ def test_project_titles_group_each_project_once() -> None:
     assert titles == [
         {
             "person": "Ana López",
-            # Se escribe como en su registro más reciente.
+            # Una sola fila, con el título y el rol de su registro más reciente.
             "title": "Redes neuronales",
             "years": [2021, 2023],
             "role": "Responsable técnico",
