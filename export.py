@@ -1,8 +1,8 @@
 """Construye la instantánea del tablero: archivos Parquet del catálogo CIC.
 
 Todo lo que escribe este script está agregado: conteos por año, laboratorio,
-rol, revista o término. La única excepción son los títulos de artículos y
-congresos del personal investigador (nunca de tesis ni de proyectos). No sale
+rol, revista o término. Las únicas excepciones son los títulos de artículos,
+congresos y proyectos del personal investigador (nunca de tesis). No sale
 ningún id ni nombre de estudiante, así que la carpeta data/ se puede copiar a
 un servidor público.
 
@@ -570,9 +570,10 @@ def term_tables(
 def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
     """Títulos de artículos y congresos del personal investigador.
 
-    Nunca se incluyen títulos de tesis ni de proyectos: solo publicaciones del personal
-    investigador, que ya son públicas y llevan su nombre en el sitio del CIC. Quien no
-    tiene laboratorio (un asesor externo) no aparece, aunque firme un producto.
+    Nunca se incluyen títulos de tesis: solo publicaciones del personal investigador, que
+    ya son públicas y llevan su nombre en el sitio del CIC (los proyectos van aparte, en
+    project_titles). Quien no tiene laboratorio (un asesor externo) no aparece, aunque
+    firme un producto.
     """
     staff = d["people"].drop_nulls("lab").select("person_id", "person")
     return (

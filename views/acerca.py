@@ -25,13 +25,15 @@ cita su origen en cada página y no tiene fines de lucro.
 ### ¿Qué **no** se publica?
 
 - **Ningún dato de estudiantes**: ni nombres, ni correos, ni quién hizo qué tesis.
-- **Ningún título de tesis ni de proyectos**: de esos solo se guardan conteos (cuántos
-  títulos usan un término, cuántas tesis dirige una persona, cuántos artículos por año). No
-  es posible descargar el catálogo desde aquí.
+- **Ningún título de tesis**: de las tesis solo se guardan conteos (cuántos títulos usan un
+  término, cuántas tesis dirige una persona). No es posible descargar el catálogo desde aquí.
 - Los títulos de **artículos y congresos del personal investigador** sí se muestran: son
   publicaciones públicas y aparecen con el nombre de la persona. Los de
   [OpenAlex](https://openalex.org) (CC0) llevan enlace a su DOI cuando está disponible y
   nunca incluyen tesis; los del catálogo del CIC, año y tipo.
+- Los títulos de los **proyectos de investigación** también se muestran en el perfil de cada
+  persona, con sus años y su rol. Están en el sitio del CIC y todos sus integrantes son
+  personal investigador.
 - Los nombres que aparecen son de personal investigador y asesores, tal como figuran en el
   sitio del CIC, junto con cifras que cualquiera puede contar ahí.
 
