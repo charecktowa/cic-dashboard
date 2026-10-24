@@ -21,6 +21,9 @@ ROLES = ["Director 1", "Director 2", "Comité tutorial"]
 TEAL, BLUE, ORANGE, CORAL = "#2a9d8f", "#4a90d9", "#f4a261", "#e76f51"
 ROLE_COLORS = {"Director 1": TEAL, "Director 2": BLUE, "Comité tutorial": ORANGE}
 KIND_COLORS = {"Artículo": BLUE, "Congreso": CORAL}
+# El naranja es más oscuro que ORANGE: junto al verde azulado se distinguen también con
+# daltonismo, en el modo claro y en el oscuro.
+LANGUAGE_COLORS = {"Español": TEAL, "Inglés": "#d95926"}
 # Escalas sin extremos casi blancos ni casi negros, que desaparecerían en un modo u otro.
 TEAL_SCALE = ["#7ccfc0", "#1f8a7e"]
 ORANGE_SCALE = ["#f6b17a", "#c2410c"]
