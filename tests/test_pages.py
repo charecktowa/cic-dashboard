@@ -423,3 +423,39 @@ def test_profile_shows_openalex_venues_when_linked(person: str) -> None:
         assert dict(zip(bars["y"], numbers(bars["x"]), strict=True)) == dict(
             expected.select("venue", "works").iter_rows()
         )
+
+
+def test_year_span_joins_consecutive_years() -> None:
+    from advisor import year_span
+
+    assert year_span([]) == "sin año"
+    assert year_span([2024]) == "2024"
+    assert year_span([2019, 2021, 2022, 2023]) == "2019, 2021–2023"
+
+
+@pytest.mark.usefixtures("tables")
+def test_profile_lists_every_project() -> None:
+    import common
+    from advisor import MARKDOWN_SPECIAL
+
+    titles = common.load("project_titles").filter(pl.col("person") == "Persona 1")["title"]
+    assert not titles.is_empty(), "el catálogo falso debe darle proyectos a Persona 1"
+    markdown = " ".join(m.value for m in render_profile_app("Persona 1").markdown)
+    for title in titles:
+        assert f"**{title.translate(MARKDOWN_SPECIAL)}**" in markdown
+
+
+def test_project_lines_escape_markdown() -> None:
+    from advisor import project_lines
+
+    projects = pl.DataFrame(
+        {
+            "title": ["Un *título*"],
+            "years": [[2024]],
+            "role": ["[Responsable](https://ejemplo.test)"],
+        }
+    )
+    (line,) = project_lines(projects)
+    # Ni el título ni el rol pueden volverse formato o un enlace.
+    assert "](" not in line
+    assert line == r"- **Un \*título\*** · 2024 · \[Responsable\]\(https://ejemplo\.test\)"

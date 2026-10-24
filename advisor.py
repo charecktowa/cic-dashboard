@@ -53,6 +53,8 @@ WORK_COLORS = {
 }
 # Revistas y congresos que se listan en "Dónde publica".
 VENUES_SHOWN = 15
+# Proyectos a la vista en la pestaña "Proyectos"; el resto, en un desplegable.
+PROJECTS_SHOWN = 10
 # Cómo se compara una persona con el resto del personal investigador.
 STANDING = {
     "theses": "Tesis en que participa",
@@ -60,6 +62,30 @@ STANDING = {
     "outputs": "Productos",
     "projects_led": "Proyectos que lidera",
 }
+
+
+def year_span(years: list[int]) -> str:
+    """Los años de un proyecto en corto: [2019, 2021, 2022, 2023] → "2019, 2021–2023"."""
+    if not years:
+        return "sin año"
+    runs: list[list[int]] = []
+    for year in years:
+        if runs and year == runs[-1][-1] + 1:
+            runs[-1].append(year)
+        else:
+            runs.append([year])
+    return ", ".join(f"{run[0]}–{run[-1]}" if len(run) > 1 else str(run[0]) for run in runs)
+
+
+def project_lines(projects: pl.DataFrame) -> list[str]:
+    """Proyectos como lista Markdown, con sus años y el rol de la persona si se conoce."""
+    lines = []
+    for project in projects.iter_rows(named=True):
+        parts = [f"**{project['title'].translate(MARKDOWN_SPECIAL)}**", year_span(project["years"])]
+        if project["role"] != "Indefinido":
+            parts.append(project["role"].translate(MARKDOWN_SPECIAL))
+        lines.append("- " + " · ".join(parts))
+    return lines
 
 
 def catalog_lines(works: pl.DataFrame) -> list[str]:
@@ -100,11 +126,12 @@ def render_profile(person: str) -> None:
 
     st.caption(profile["lab"] or "Sin laboratorio en el CIC (participa como persona externa)")
     render_cards(profile, per_year)
-    overview, by_year, venues, topics, standing, publications = st.tabs(
+    overview, by_year, venues, projects, topics, standing, publications = st.tabs(
         [
             "Panorama",
             "Producción por año",
             "Dónde publica",
+            "Proyectos",
             "Temas y colaboración",
             "Su lugar en el CIC",
             "Publicaciones (OpenAlex)",
@@ -116,6 +143,8 @@ def render_profile(person: str) -> None:
         render_by_year(person, per_year)
     with venues:
         render_venues(person)
+    with projects:
+        render_projects(person)
     with topics:
         render_topics(person)
     with standing:
@@ -129,6 +158,8 @@ def render_profile(person: str) -> None:
 - **Dónde publica**: revistas y congresos de sus artículos en el catálogo del CIC (las
   variantes de escritura de un mismo nombre se cuentan juntas) y de todos sus trabajos en
   OpenAlex, sin tesis.
+- **Proyectos**: los proyectos de investigación registrados en el sitio del CIC en que
+  participa, con sus años y su rol (responsable técnico o colaborador).
 - **Temas característicos**: términos de los títulos de sus tesis dirigidas, artículos,
   congresos y proyectos que esta persona usa más que el promedio del CIC.
 - **Con quién coincide**: personas que participaron en las mismas tesis, como directores o
@@ -323,6 +354,26 @@ def render_openalex_venues(person: str) -> None:
         f"Sus {top.height} revistas y congresos con más trabajos en "
         f"[OpenAlex]({OPENALEX_URL}) (CC0), sin tesis. OpenAlex cuenta todo lo que tiene "
         "indexado, incluidos preprints como arXiv, así que puede diferir del catálogo del CIC."
+    )
+
+
+def render_projects(person: str) -> None:
+    """Los proyectos de investigación de una persona, los más recientes primero."""
+    projects = load_optional("project_titles")
+    if projects is None:
+        st.caption("Esta instantánea de datos todavía no incluye los títulos de proyectos.")
+        return
+    mine = projects.filter(pl.col("person") == person)
+    if mine.is_empty():
+        st.caption("Sin proyectos registrados en el catálogo del CIC.")
+        return
+    st.markdown("\n".join(project_lines(mine.head(PROJECTS_SHOWN))))
+    if mine.height > PROJECTS_SHOWN:
+        with st.expander(f"Ver los {mine.height} proyectos"):
+            st.markdown("\n".join(project_lines(mine.slice(PROJECTS_SHOWN))))
+    st.caption(
+        "Proyectos registrados en el sitio del CIC. Un proyecto registrado en varios años "
+        "aparece una vez, con todos sus años."
     )
 
 

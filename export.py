@@ -1,8 +1,8 @@
 """Construye la instantánea del tablero: archivos Parquet del catálogo CIC.
 
 Todo lo que escribe este script está agregado: conteos por año, laboratorio,
-rol, revista o término. La única excepción son los títulos de artículos y
-congresos del personal investigador (nunca de tesis ni de proyectos). No sale
+rol, revista o término. Las únicas excepciones son los títulos de artículos,
+congresos y proyectos del personal investigador (nunca de tesis). No sale
 ningún id ni nombre de estudiante, así que la carpeta data/ se puede copiar a
 un servidor público.
 
@@ -570,9 +570,10 @@ def term_tables(
 def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
     """Títulos de artículos y congresos del personal investigador.
 
-    Nunca se incluyen títulos de tesis ni de proyectos: solo publicaciones del personal
-    investigador, que ya son públicas y llevan su nombre en el sitio del CIC. Quien no
-    tiene laboratorio (un asesor externo) no aparece, aunque firme un producto.
+    Nunca se incluyen títulos de tesis: solo publicaciones del personal investigador, que
+    ya son públicas y llevan su nombre en el sitio del CIC (los proyectos van aparte, en
+    project_titles). Quien no tiene laboratorio (un asesor externo) no aparece, aunque
+    firme un producto.
     """
     staff = d["people"].drop_nulls("lab").select("person_id", "person")
     return (
@@ -589,6 +590,39 @@ def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
         .unique(["person_id", "product_id"])
         .sort(["person", "year", "title"], descending=[False, True, False], nulls_last=True)
         .select("person", "title", "year", "kind")
+    )
+
+
+def project_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    """Títulos de los proyectos del personal investigador, con sus años y el rol de cada uno.
+
+    Un proyecto registrado en varios años (el mismo título, sin importar mayúsculas)
+    aparece una vez con todos sus años, y con el título y el rol de su registro más
+    reciente: alguien puede pasar de colaborador a responsable técnico. Como en
+    output_titles, quien no tiene laboratorio en el CIC no aparece, y nunca se incluyen
+    títulos de tesis.
+    """
+    staff = d["people"].drop_nulls("lab").select("person_id", "person")
+    title = pl.col("title").str.strip_chars()
+    return (
+        d["project_members"]
+        .join(d["projects"].select("project_id", "title", "year"), on="project_id")
+        .join(staff, on="person_id")
+        .filter(title.str.len_chars() > 0)
+        .with_columns(key=title.str.to_lowercase(), role=pl.col("role").fill_null("Indefinido"))
+        .group_by("person", "key")
+        # Título y rol del registro más reciente; el propio valor desempata para que el
+        # elegido no cambie entre exportaciones.
+        .agg(
+            title=title.sort_by(["year", title], descending=[True, False], nulls_last=True).first(),
+            role=pl.col("role")
+            .sort_by(["year", "role"], descending=[True, False], nulls_last=True)
+            .first(),
+            years=pl.col("year").drop_nulls().unique().sort(),
+        )
+        .with_columns(last=pl.col("years").list.max())
+        .sort(["person", "last", "title"], descending=[False, True, False], nulls_last=True)
+        .select("person", "title", "years", "role")
     )
 
 
@@ -626,6 +660,7 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
         "venues": venues(d),
         "person_venues": person_venues(d, profiles["people"].select("person")),
         "output_titles": output_titles(d),
+        "project_titles": project_titles(d),
         **term_tables(
             docs["docs"],
             docs["doc_labs"],
