@@ -103,11 +103,12 @@ uv run streamlit run app.py
 ### Copiar el proyecto y los datos
 
 ```bash
-rsync -av --exclude .venv --exclude .git --exclude __pycache__ --exclude .env ./ vps:~/cic-dashboard/
+rsync -av --exclude .venv --exclude .git --exclude __pycache__ --exclude '.*_cache' \
+    --exclude .claude --exclude .env ./ vps:~/cic-dashboard/
 ```
 
 Tu `.env` local no se copia: lleva la contraseña de Postgres y la llave de OpenAlex, que el
-VPS no necesita.
+VPS no necesita. Las cachés de mypy, pytest y ruff (más de 150 MB) tampoco.
 
 ### Conectar con Nginx Proxy Manager
 
