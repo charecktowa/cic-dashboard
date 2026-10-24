@@ -128,6 +128,15 @@ def test_write_replaces_the_snapshot(tmp_path: Path) -> None:
     assert not [p for p in tmp_path.iterdir() if p.name.startswith(".staging-")]
 
 
+def test_write_cleans_abandoned_staging(tmp_path: Path) -> None:
+    abandoned = tmp_path / ".staging-muerta"
+    abandoned.mkdir()
+    pl.DataFrame({"v": [1]}).write_parquet(abandoned / "meta.parquet")
+    with export.export_lock(tmp_path):
+        export.write({"meta": pl.DataFrame({"v": [2]})}, tmp_path)
+    assert not abandoned.exists()
+
+
 def test_failed_write_keeps_the_previous_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
