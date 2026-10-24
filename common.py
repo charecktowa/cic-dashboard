@@ -29,6 +29,20 @@ ORANGE_SCALE = ["#f6b17a", "#c2410c"]
 # rango es fijo para que un mismo valor tenga el mismo tono en cualquier laboratorio.
 LIFT_SCALE = ["#9fd8cd", "#2a9d8f", "#17675e"]
 LIFT_MAX = 30
+# Ocho tonos para distinguir personas, en un orden donde cada par vecino se distingue
+# también con daltonismo, sobre el fondo claro y el oscuro. Un laboratorio tiene hasta 12
+# personas: de la novena en adelante se repiten, ocho filas más abajo y con su nombre al
+# lado, así que nadie depende solo del color.
+PERSON_COLORS = [
+    "#3987e5",
+    "#d95926",
+    "#199e70",
+    "#c98500",
+    "#d55181",
+    "#008300",
+    "#9085e9",
+    "#e66767",
+]
 # Un color fijo por laboratorio del CIC. Tonos intermedios y separados entre sí (ΔE ≥ 21)
 # para que se distingan sobre el fondo claro y el oscuro y entre pantallas sin calibración.
 # Van por nombre y no por posición: si el catálogo agrega o renombra un laboratorio, los
@@ -158,6 +172,11 @@ def assign_lab_colors(labs: list[str]) -> dict[str, str]:
 def lab_colors() -> dict[str, str]:
     """Un color estable por laboratorio: el mismo en todas las gráficas de la app."""
     return assign_lab_colors(load("lab_stats")["lab"].to_list())
+
+
+def person_colors(people: list[str]) -> dict[str, str]:
+    """Un color por persona, en el orden dado: vecinas en la lista, colores distinguibles."""
+    return {person: PERSON_COLORS[i % len(PERSON_COLORS)] for i, person in enumerate(people)}
 
 
 def translucent(color: str, alpha: float) -> str:

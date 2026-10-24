@@ -589,3 +589,32 @@ def test_distinctive_terms_label_their_lift_on_a_fixed_scale(where: str) -> None
     axis = spec["layout"]["coloraxis"]
     assert (axis["cmin"], axis["cmax"]) == (0, math.log10(common.LIFT_MAX))
     assert axis["showscale"] is False
+
+
+@pytest.mark.usefixtures("tables")
+def test_lab_members_keep_one_color_in_both_charts() -> None:
+    import common
+
+    app = open_page("laboratorios")
+    lab = app.selectbox[0].value
+    members = common.load("people").filter(pl.col("lab") == lab)["person"].to_list()
+    traces = [
+        trace for spec in chart_specs(app) for trace in spec["data"] if trace.get("name") in members
+    ]
+    colors: dict[str, set[str]] = {}
+    for trace in traces:
+        colors.setdefault(trace["name"], set()).add(trace["marker"]["color"])
+    # Cada persona: una barra de tesis y una de productos, del mismo color.
+    assert sorted(colors) == sorted(members)
+    assert all(len(drawn) == 1 for drawn in colors.values())
+    shown = [drawn.pop() for drawn in colors.values()]
+    assert len(set(shown)) == min(len(members), len(common.PERSON_COLORS))
+
+
+def test_person_colors_repeat_only_after_the_palette() -> None:
+    import common
+
+    people = [f"Persona {i}" for i in range(12)]
+    colors = list(common.person_colors(people).values())
+    assert colors[:8] == common.PERSON_COLORS
+    assert colors[8:] == common.PERSON_COLORS[:4]

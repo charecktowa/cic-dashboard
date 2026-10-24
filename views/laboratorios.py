@@ -4,17 +4,16 @@ import streamlit as st
 
 from advisor import profile_link
 from common import (
-    BLUE,
     KIND_COLORS,
     LAB_METRICS,
     LABELS,
-    TEAL,
     every_year,
     explain,
     fmt_share,
     footer,
     lab_colors,
     load,
+    person_colors,
     show,
     show_terms,
     show_venues,
@@ -143,8 +142,9 @@ with tab_people:
             y="person",
             facet_col="what",
             orientation="h",
-            color="what",
-            color_discrete_sequence=[TEAL, BLUE],
+            # Un color por persona: sus dos barras, en filas alineadas, se leen como suyas.
+            color="person",
+            color_discrete_map=person_colors(members["person"].to_list()),
             labels={**LABELS, "n": "", "what": ""},
         )
         fig.update_xaxes(matches=None)
