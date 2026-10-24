@@ -444,4 +444,15 @@ def render_openalex(person: str) -> None:
 @st.dialog("Perfil", width="large")
 def profile_dialog(person: str) -> None:
     st.markdown(f"### {person}")
+    profile_link(person, "Abrir en Perfil de asesor")
     render_profile(person)
+
+
+def profile_link(person: str, label: str | None = None) -> None:
+    """Enlace a la página Perfil de asesor, ya con esta persona elegida."""
+    st.page_link(
+        "views/perfil.py",
+        label=label or person,
+        icon=":material/person_search:",
+        query_params={"persona": person},
+    )

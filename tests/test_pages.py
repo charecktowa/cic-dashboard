@@ -323,3 +323,29 @@ def test_standing_explains_why_externals_are_not_ranked() -> None:
     app = render_profile_app(external[0])
     assert any("participa como externa" in c.value for c in app.caption)
     assert not any("#" in m.value for m in app.metric)
+
+
+def profile_links(app: AppTest) -> list[str]:
+    from urllib.parse import parse_qs
+
+    queries = [parse_qs(link.proto.query_string) for link in app.get("page_link")]
+    return [q["persona"][0] for q in queries if "persona" in q]
+
+
+@pytest.mark.usefixtures("tables")
+def test_lab_members_link_to_their_profile() -> None:
+    import common
+
+    app = open_page("laboratorios")
+    lab = app.selectbox[0].value
+    members = common.load("people").filter(pl.col("lab") == lab)["person"]
+    assert sorted(profile_links(app)) == sorted(members)
+
+
+@pytest.mark.usefixtures("tables")
+def test_finder_dialog_links_to_the_profile_page() -> None:
+    app = open_page("encuentra")
+    app.text_area(key="idea").set_value("deep learning").run()
+    opener = next(b for b in app.button if str(b.key).startswith("open-"))
+    opener.click().run()
+    assert profile_links(app) == [str(opener.key).removeprefix("open-")]

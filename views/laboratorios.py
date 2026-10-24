@@ -2,6 +2,7 @@ import plotly.express as px
 import polars as pl
 import streamlit as st
 
+from advisor import profile_link
 from common import (
     BLUE,
     KIND_COLORS,
@@ -159,7 +160,10 @@ with tab_people:
         fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
         fig.update_layout(showlegend=False, height=26 * members.height + 100)
         show(fig)
-        st.caption("Abre la página **Asesores** para ver el perfil completo de cada persona.")
+        st.markdown("**Ver el perfil completo de:**")
+        with st.container(horizontal=True, gap="small"):
+            for name in members.sort("person")["person"]:
+                profile_link(name)
 with tab_years:
     per_kind = (
         outputs.filter(pl.col("lab") == lab)
