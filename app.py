@@ -15,6 +15,7 @@ pages = [
     st.Page("views/encuentra.py", title="Encuentra tu lab", icon=":material/explore:"),
     st.Page("views/laboratorios.py", title="Laboratorios", icon=":material/science:"),
     st.Page("views/asesores.py", title="Asesores", icon=":material/school:"),
+    st.Page("views/perfil.py", title="Perfil de asesor", icon=":material/person_search:"),
     st.Page("views/temas.py", title="Temas", icon=":material/trending_up:"),
     st.Page("views/colaboracion.py", title="Colaboración", icon=":material/hub:"),
     st.Page("views/produccion.py", title="Producción", icon=":material/article:"),

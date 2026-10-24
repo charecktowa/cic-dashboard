@@ -9,6 +9,7 @@ from common import (
     explain,
     footer,
     lab_code,
+    lab_codes,
     lab_colors,
     load,
     show,
@@ -75,8 +76,7 @@ fig.update_layout(
 )
 fig.update_xaxes(tickangle=-45)
 show(fig)
-with st.expander("Siglas de los laboratorios", icon=":material/abc:"):
-    st.markdown("\n".join(f"- **{lab_code(lab)}**: {lab}" for lab in sorted(labs_here)))
+lab_codes(labs_here)
 explain(
     """
 Cada celda cuenta los elementos que comparten dos laboratorios:

@@ -157,6 +157,12 @@ def lab_code(lab: str) -> str:
     return "".join(w if w.lower() in {"y", "e"} else w[0].upper() for w in words)
 
 
+def lab_codes(labs: list[str]) -> None:
+    """Desplegable con las siglas de estos laboratorios, para las gráficas que las usan."""
+    with st.expander("Siglas de los laboratorios", icon=":material/abc:"):
+        st.markdown("\n".join(f"- **{lab_code(lab)}**: {lab}" for lab in sorted(labs)))
+
+
 def wrap(label: str) -> str:
     return "<br>".join(textwrap.wrap(label, WRAP_AT)) if len(label) > WRAP_AT else label
 

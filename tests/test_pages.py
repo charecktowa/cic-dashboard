@@ -14,6 +14,7 @@ PAGES = [
     "encuentra",
     "laboratorios",
     "asesores",
+    "perfil",
     "temas",
     "colaboracion",
     "produccion",
@@ -22,8 +23,10 @@ PAGES = [
 PAGES_WITH_LAB_CHARTS = {"laboratorios", "asesores", "produccion"}
 
 
-def open_page(page: str) -> AppTest:
-    app = AppTest.from_file(str(APP), default_timeout=60).run()
+def open_page(page: str, **query: str) -> AppTest:
+    app = AppTest.from_file(str(APP), default_timeout=60)
+    app.query_params.update(query)
+    app.run()
     if page != "inicio":
         app.switch_page(f"views/{page}.py").run()
     return app
@@ -184,7 +187,9 @@ def test_ranking_puts_the_leader_on_top() -> None:
 def test_every_lab_keeps_its_color(page: str) -> None:
     import common
 
-    colors = common.lab_colors()
+    full = common.lab_colors()
+    # Una gráfica estrecha nombra a los laboratorios por sus siglas, con el mismo color.
+    colors = full | {common.lab_code(lab): color for lab, color in full.items()}
     traces = [trace for spec in chart_specs(open_page(page)) for trace in spec["data"]]
     by_lab = [trace for trace in traces if trace.get("name") in colors]
     # Sin esto, una página que dejara de dibujar sus gráficas por laboratorio pasaría.
@@ -243,3 +248,109 @@ def test_codirection_flow_uses_lab_colors() -> None:
     nodes = sankey["node"]
     assert nodes["customdata"], "el catálogo falso debe tener codirecciones"
     assert nodes["color"] == [colors[lab] for lab in nodes["customdata"]]
+
+
+def profile_headers(app: AppTest) -> list[str]:
+    return [m.value for m in app.markdown if m.value.startswith("### ")]
+
+
+@pytest.mark.usefixtures("tables")
+def test_advisor_search_starts_empty() -> None:
+    app = open_page("perfil")
+    assert not app.exception, app.exception
+    assert app.selectbox(key="persona").value is None
+    assert not profile_headers(app)
+
+
+@pytest.mark.usefixtures("tables")
+@pytest.mark.parametrize(("name", "shown"), [("Persona 3", True), ("Nadie", False)])
+def test_advisor_profile_opens_from_the_url(name: str, shown: bool) -> None:
+    app = open_page("perfil", persona=name)
+    assert not app.exception, app.exception
+    assert profile_headers(app) == ([f"### {name}"] if shown else [])
+
+
+@pytest.mark.usefixtures("tables")
+def test_publishing_vs_supervising_fits_a_phone() -> None:
+    import common
+
+    scatter = next(
+        spec
+        for spec in chart_specs(open_page("asesores"))
+        if spec["data"] and spec["data"][0]["type"] == "scatter"
+    )
+    labs = set(common.load("people").drop_nulls("lab")["lab"])
+    # Una serie por laboratorio, con su sigla en la leyenda: dos siglas iguales no se juntan.
+    assert {trace["legendgroup"] for trace in scatter["data"]} == labs
+    for trace in scatter["data"]:
+        assert trace["name"] == common.lab_code(trace["legendgroup"])
+    assert scatter["layout"]["legend"]["orientation"] == "h"
+
+
+def render_profile_app(person: str) -> AppTest:
+    script = f"""
+import streamlit as st
+from advisor import render_profile
+render_profile({person!r})
+"""
+    app = AppTest.from_string(script, default_timeout=60).run()
+    assert not app.exception, app.exception
+    return app
+
+
+@pytest.mark.usefixtures("tables")
+def test_standing_places_and_highlights_the_person() -> None:
+    import common
+
+    researchers = common.load("people").drop_nulls("lab")
+    me = researchers.filter(pl.col("person") == "Persona 1").row(0, named=True)
+    place = researchers.filter(pl.col("director_1") > me["director_1"]).height + 1
+    app = render_profile_app("Persona 1")
+    card = next(m for m in app.metric if m.label == "Tesis como Director 1" and "#" in m.value)
+    assert card.value == f"#{place} de {researchers.height}"
+    stars = [
+        trace
+        for spec in chart_specs(app)
+        for trace in spec["data"]
+        if trace.get("marker", {}).get("symbol") == "star"
+    ]
+    assert [trace["name"] for trace in stars] == ["Persona 1"]
+
+
+@pytest.mark.usefixtures("tables")
+def test_standing_explains_why_externals_are_not_ranked() -> None:
+    import common
+
+    external = common.load("people").filter(pl.col("lab").is_null())["person"]
+    assert not external.is_empty(), "el catálogo falso debe tener una persona externa"
+    app = render_profile_app(external[0])
+    assert any("participa como externa" in c.value for c in app.caption)
+    # Solo las tarjetas de siempre: ni lugares en el CIC ni la gráfica de publicar vs. dirigir.
+    assert len(app.metric) == 5
+    assert not [spec for spec in chart_specs(app) if spec["data"][0]["type"] == "scatter"]
+
+
+def profile_links(app: AppTest) -> list[str]:
+    from urllib.parse import parse_qs
+
+    queries = [parse_qs(link.proto.query_string) for link in app.get("page_link")]
+    return [q["persona"][0] for q in queries if "persona" in q]
+
+
+@pytest.mark.usefixtures("tables")
+def test_lab_members_link_to_their_profile() -> None:
+    import common
+
+    app = open_page("laboratorios")
+    lab = app.selectbox[0].value
+    members = common.load("people").filter(pl.col("lab") == lab)["person"]
+    assert sorted(profile_links(app)) == sorted(members)
+
+
+@pytest.mark.usefixtures("tables")
+def test_finder_dialog_links_to_the_profile_page() -> None:
+    app = open_page("encuentra")
+    app.text_area(key="idea").set_value("deep learning").run()
+    opener = next(b for b in app.button if str(b.key).startswith("open-"))
+    opener.click().run()
+    assert profile_links(app) == [str(opener.key).removeprefix("open-")]

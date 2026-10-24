@@ -2,14 +2,13 @@ import plotly.express as px
 import polars as pl
 import streamlit as st
 
-from advisor import render_profile
+from advisor import render_publishing_vs_supervising
 from common import (
     LABELS,
     ROLE_COLORS,
     ROLES,
     explain,
     footer,
-    lab_colors,
     load,
     show,
 )
@@ -21,7 +20,14 @@ st.title("Asesores")
 st.markdown(
     "Las personas que dirigen tesis y participan en comités tutoriales del CIC. Se incluye a "
     "todo el personal investigador con laboratorio en el CIC y a personas externas que "
-    "participaron en al menos tres tesis. Los nombres y cifras salen del sitio público del CIC."
+    "participaron en al menos tres tesis. Los nombres y cifras salen del sitio público del CIC. "
+    "Aquí se compara a todas; para conocer a una sola, abre su perfil."
+)
+
+st.page_link(
+    "views/perfil.py",
+    label="Ver el perfil de una persona",
+    icon=":material/person_search:",
 )
 
 # --- Ranking ----------------------------------------------------------------
@@ -77,42 +83,13 @@ tesis distintas en que participó.
 """
 )
 
-# --- Profile ----------------------------------------------------------------
-
-st.subheader("Perfil")
-names = people.sort("person")["person"].to_list()
-top = people.sort("director_1", descending=True)["person"][0]
-person = st.selectbox(
-    "Busca a una persona",
-    names,
-    index=names.index(top),
-    help="Escribe para filtrar la lista.",
-)
-st.markdown(f"### {person}")
-render_profile(person)
-
 # --- Publishing vs supervising ---------------------------------------------
 
 st.subheader("Publicar vs. dirigir")
 st.markdown(
     "Cada punto es una persona investigadora del CIC. A la derecha, quien más publica; "
     "arriba, quien más tesis dirige; el tamaño es el número de proyectos que lidera. "
-    "Haz clic en un laboratorio de la leyenda para ocultarlo."
+    "Haz clic en las siglas de un laboratorio, debajo de la gráfica, para ocultarlo."
 )
-researchers = people.drop_nulls("lab")
-fig = px.scatter(
-    researchers,
-    x="outputs",
-    y="director_1",
-    size="projects_led",
-    size_max=35,
-    color="lab",
-    color_discrete_map=lab_colors(),
-    hover_name="person",
-    hover_data={"lab": True, "outputs": True, "director_1": True, "projects_led": True},
-    labels={**LABELS, "outputs": "Productos (artículos y congresos)"},
-)
-fig.update_traces(marker={"line": {"width": 0.5, "color": "white"}, "sizemin": 4})
-fig.update_layout(height=560)
-show(fig)
+render_publishing_vs_supervising()
 footer()

@@ -9,7 +9,8 @@ asesor. Hecho con Streamlit y Plotly.
 | Inicio | Cifras generales, "¿Sabías que…?" calculados con los datos y accesos a cada sección. |
 | Encuentra tu lab | Escribes tu idea de tesis y te sugiere laboratorios y personas afines, con acceso a su perfil. |
 | Laboratorios | Ranking, perfil de cada laboratorio, comparación en radar y mapa de temas. |
-| Asesores | Quién participa en más tesis y con qué rol, perfil por persona, sus publicaciones y "publicar vs. dirigir". |
+| Asesores | Panorama de todas las personas: quién participa en más tesis y con qué rol, y "publicar vs. dirigir". |
+| Perfil de asesor | Buscador y perfil de una persona: tesis, producción por año, temas, colaboración y OpenAlex. Se comparte con `?persona=`. |
 | Temas | Seguir términos en el tiempo, temas que crecen o se apagan, español vs. inglés. |
 | Colaboración | Mapa de calor entre laboratorios, flujo de codirección y duplas frecuentes. |
 | Producción | Productos por año, crecimiento animado por laboratorio, proyectos y revistas. |
