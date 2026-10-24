@@ -394,10 +394,17 @@ def project_stats(d: dict[str, pl.DataFrame]) -> tuple[pl.DataFrame, pl.DataFram
 def keyed_venues(outputs: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Productos con revista o congreso, y un nombre por cada forma de escribirlo.
 
-    Las variantes de escritura de una misma revista (con o sin acentos, mayúsculas)
-    comparten `venue_key` y se muestran con su nombre más frecuente.
+    Las variantes de escritura de una misma revista (con o sin acentos, mayúsculas, "&"
+    o "and") comparten `venue_key` y se muestran con su nombre más frecuente.
     """
-    scoped = outputs.drop_nulls("venue").with_columns(venue_key=words_expr("venue").list.join(" "))
+    scoped = (
+        outputs.drop_nulls("venue")
+        # "Intelligent & Fuzzy" y "Intelligent and Fuzzy" son la misma revista. Solo el "&"
+        # entre palabras: dentro de una sigla, como ROC&C, no es un "and".
+        .with_columns(spelled=pl.col("venue").str.replace_all(r"\s&\s", " and "))
+        .with_columns(venue_key=words_expr("spelled").list.join(" "))
+        .drop("spelled")
+    )
     names = scoped.group_by("venue_key").agg(venue=pl.col("venue").mode().first())
     return scoped, names
 
