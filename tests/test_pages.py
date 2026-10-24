@@ -1,5 +1,6 @@
 """Cada página corre de principio a fin con la instantánea falsa."""
 
+import datetime
 from pathlib import Path
 
 import polars as pl
@@ -81,9 +82,81 @@ render_profile({person!r})
     captions = " ".join(c.value for c in app.caption)
     linked = "no tiene un perfil de OpenAlex" not in captions
     assert linked == (person == "Persona 1")
+    # La tesis de OpenAlex del catálogo falso (la más citada) nunca se muestra.
+    assert "Mi tesis doctoral" not in " ".join(m.value for m in app.markdown)
 
 
 def test_missing_optional_table_is_none() -> None:
     import common
 
     assert common.load_optional("no_existe") is None
+
+
+@pytest.mark.usefixtures("tables")
+def test_profile_lists_catalog_titles(catalog: dict[str, pl.DataFrame]) -> None:
+    from advisor import MARKDOWN_SPECIAL
+
+    newest = (
+        catalog["output_authors"]
+        .filter(pl.col("person_id") == 1)
+        .join(catalog["outputs"], on="product_id")
+        .filter(pl.col("year") <= datetime.date.today().year)
+        .sort("year", descending=True)["title"][0]
+    )
+    script = """
+import streamlit as st
+from advisor import render_profile
+render_profile('Persona 1')
+"""
+    app = AppTest.from_string(script, default_timeout=60).run()
+    assert not app.exception, app.exception
+    markdown = " ".join(m.value for m in app.markdown)
+    assert "catálogo del CIC" in markdown
+    assert newest.translate(MARKDOWN_SPECIAL) in markdown
+
+
+@pytest.mark.usefixtures("tables")
+def test_lab_colors_are_distinct() -> None:
+    import common
+
+    colors = common.lab_colors()
+    assert set(colors) == set(common.load("lab_stats")["lab"])
+    assert len(set(colors.values())) == len(colors)
+
+
+def test_lab_colors_survive_a_new_lab() -> None:
+    import common
+
+    known = list(common.LAB_COLORS)
+    before = common.assign_lab_colors(known[1:])
+    after = common.assign_lab_colors([*known[1:], "Laboratorio Nuevo"])
+    # Los demás conservan su color y el nuevo toma el que quedó libre.
+    assert {lab: after[lab] for lab in before} == before
+    assert after["Laboratorio Nuevo"] == common.LAB_COLORS[known[0]]
+
+
+def test_year_axis_marks_every_year() -> None:
+    import plotly.graph_objects as go
+
+    import common
+
+    fig = go.Figure(go.Bar(x=[2020, 2021], y=[1, 2]))
+    common.year_axis(fig, [2020, 2021])
+    assert fig.layout.xaxis.tickmode == "array"
+    assert list(fig.layout.xaxis.tickvals) == [2020, 2021]
+    assert fig.layout.xaxis.tickangle == -60
+
+    # Nunca más de 20 marcas, el último año siempre marcado y sin dos marcas pegadas.
+    for n in range(1, 200):
+        years = list(range(1900, 1900 + n))
+        fig = go.Figure()
+        common.year_axis(fig, years)
+        ticks = list(fig.layout.xaxis.tickvals)
+        assert len(ticks) <= 20, n
+        assert ticks[-1] == years[-1], n
+        gaps = [b - a for a, b in zip(ticks, ticks[1:], strict=False)]
+        assert n <= 20 or min(gaps) > 1, n
+
+    empty = go.Figure()
+    common.year_axis(empty, [])
+    assert empty.layout.xaxis.tickmode is None

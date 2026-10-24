@@ -12,8 +12,11 @@ from common import (
     explain,
     fmt_share,
     footer,
+    lab_colors,
     load,
     show,
+    year_axis,
+    year_range,
 )
 
 lab_stats = load("lab_stats")
@@ -24,7 +27,8 @@ people = load("people")
 st.title("Laboratorios")
 st.markdown(
     "El CIC tiene 15 laboratorios. Aquí puedes ordenarlos por distintas métricas, abrir el "
-    "perfil de cada uno y compararlos entre sí."
+    "perfil de cada uno y compararlos entre sí. Cada laboratorio conserva su color en todas "
+    "las gráficas."
 )
 
 # --- Ranking ----------------------------------------------------------------
@@ -43,9 +47,13 @@ fig = px.bar(
     x=metric,
     y="lab",
     orientation="h",
-    color=metric,
-    color_continuous_scale=TEAL_SCALE,
+    color="lab",
+    color_discrete_map=lab_colors(),
+    # Un color por laboratorio parte las barras en series: sin esto Plotly las
+    # ordenaría por serie y no por el ranking.
+    category_orders={"lab": ranked["lab"].to_list()},
     hover_data={
+        "lab": False,
         "researchers": True,
         "theses": True,
         "doctorate_share": ":.0%",
@@ -55,8 +63,7 @@ fig = px.bar(
     },
     labels=LABELS,
 )
-fig.update_layout(coloraxis_showscale=False, height=28 * ranked.height + 80)
-fig.update_yaxes(categoryorder="total ascending")
+fig.update_layout(showlegend=False, height=28 * ranked.height + 80)
 show(fig)
 explain(
     """
@@ -76,10 +83,7 @@ st.subheader("Perfil de un laboratorio")
 lab = st.selectbox("Laboratorio", ranked["lab"].to_list(), help="Ordenados según el ranking.")
 row = lab_stats.filter(pl.col("lab") == lab).row(0, named=True)
 lab_years = (
-    outputs.filter((pl.col("lab") == lab) & pl.col("year").is_between(2005, 2025))
-    .group_by("year")
-    .agg(pl.sum("outputs"))
-    .sort("year")
+    outputs.filter(pl.col("lab") == lab).group_by("year").agg(pl.sum("outputs")).sort("year")
 )
 
 cols = st.columns(4)
@@ -160,10 +164,21 @@ with tab_years:
         .agg(pl.sum("outputs"))
         .sort("year")
     )
-    fig = px.bar(
-        per_kind, x="year", y="outputs", color="kind", color_discrete_map=KIND_COLORS, labels=LABELS
-    )
-    show(fig)
+    if per_kind.is_empty():
+        st.info("Este laboratorio no tiene productos con año en el catálogo.")
+    else:
+        first, last = year_range(per_kind["year"], key=f"years-{lab}")
+        scoped = per_kind.filter(pl.col("year").is_between(first, last))
+        fig = px.bar(
+            scoped,
+            x="year",
+            y="outputs",
+            color="kind",
+            color_discrete_map=KIND_COLORS,
+            labels=LABELS,
+        )
+        year_axis(fig, scoped["year"].unique().sort().to_list())
+        show(fig)
 with tab_venues:
     top_venues = (
         load("venues")
@@ -214,6 +229,7 @@ if picked:
         r="value",
         theta="metric",
         color="lab",
+        color_discrete_map=lab_colors(),
         line_close=True,
         range_r=[0, 100],
         labels={"value": "Escala 0–100", "metric": "Métrica", **LABELS},
@@ -235,7 +251,7 @@ fig = px.sunburst(
     path=[px.Constant("CIC"), "lab", "term"],
     values="here",
     color="lab",
-    color_discrete_sequence=px.colors.qualitative.Set3,
+    color_discrete_map=lab_colors(),
     hover_data={"here": True},
     labels=LABELS,
 )

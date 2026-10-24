@@ -1,8 +1,10 @@
-"""Construye la instantánea del tablero: archivos Parquet agregados del catálogo CIC.
+"""Construye la instantánea del tablero: archivos Parquet del catálogo CIC.
 
-Todo lo que escribe este script ya está agregado: conteos por año, laboratorio,
-rol, revista o término. No sale ningún título, id ni nombre de estudiante, así
-que la carpeta data/ se puede copiar a un servidor público.
+Todo lo que escribe este script está agregado: conteos por año, laboratorio,
+rol, revista o término. La única excepción son los títulos de artículos y
+congresos del personal investigador (nunca de tesis ni de proyectos). No sale
+ningún id ni nombre de estudiante, así que la carpeta data/ se puede copiar a
+un servidor público.
 
 Se ejecuta donde la base de datos es accesible:
 
@@ -290,7 +292,8 @@ def people_profiles(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
         .filter(pl.col("person") != pl.col("other"))
         .group_by("person", "other")
         .agg(theses=pl.len())
-        .sort("theses", descending=True)
+        # El nombre desempata: sin él, el top de cada persona cambiaría entre exportaciones.
+        .sort(["theses", "other"], descending=[True, False])
         .group_by("person", maintain_order=True)
         .head(TOP_COLLABORATORS)
     )
@@ -500,7 +503,7 @@ def term_tables(
             / ((pl.col("everywhere") + 1) / (docs.height + 1))
         )
         .with_columns(score=pl.col("here") * pl.col("lift").log())
-        .sort("score", descending=True)
+        .sort(["score", "term"], descending=[True, False])
         .group_by("lab", maintain_order=True)
         .head(SIGNATURE_TERMS)
         .drop("lab_titles")
@@ -518,8 +521,41 @@ def term_tables(
     }
 
 
+def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    """Títulos de artículos y congresos del personal investigador.
+
+    Nunca se incluyen títulos de tesis ni de proyectos: solo publicaciones del personal
+    investigador, que ya son públicas y llevan su nombre en el sitio del CIC. Quien no
+    tiene laboratorio (un asesor externo) no aparece, aunque firme un producto.
+    """
+    staff = d["people"].drop_nulls("lab").select("person_id", "person")
+    return (
+        d["output_authors"]
+        .join(d["outputs"].select("product_id", "title", "year", "kind"), on="product_id")
+        .join(staff, on="person_id")
+        .filter(
+            pl.col("kind").is_in(list(KINDS.values()))
+            & pl.col("title").is_not_null()
+            & (pl.col("title").str.len_chars() > 0)
+        )
+        .select("person", "title", "year", "kind")
+        .unique()
+        .sort("person", "year", descending=[False, True], nulls_last=True)
+    )
+
+
 def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     """Todas las tablas agregadas a partir de las tablas a nivel de registro."""
+    # Un año futuro es un error de captura: no debe mover totales ni tendencias. Sus
+    # laboratorios y autores también se van, o seguirían contando en pares y temas.
+    outputs = d["outputs"].filter(pl.col("year").is_null() | (pl.col("year") <= CURRENT_YEAR))
+    kept = outputs.select("product_id")
+    d = {
+        **d,
+        "outputs": outputs,
+        "output_labs": d["output_labs"].join(kept, on="product_id", how="semi"),
+        "output_authors": d["output_authors"].join(kept, on="product_id", how="semi"),
+    }
     profiles = people_profiles(d)
     docs = documents(d)
     by_scope, by_team = project_stats(d)
@@ -535,6 +571,7 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
         "projects_by_scope": by_scope,
         "projects_by_team": by_team,
         "venues": venues(d),
+        "output_titles": output_titles(d),
         **term_tables(
             docs["docs"],
             docs["doc_labs"],

@@ -9,7 +9,7 @@ asesor. Hecho con Streamlit y Plotly.
 | Inicio | Cifras generales, "¿Sabías que…?" calculados con los datos y accesos a cada sección. |
 | Encuentra tu lab | Escribes tu idea de tesis y te sugiere laboratorios y personas afines, con acceso a su perfil. |
 | Laboratorios | Ranking, perfil de cada laboratorio, comparación en radar y mapa de temas. |
-| Asesores | Quién participa en más tesis y con qué rol, perfil por persona y "publicar vs. dirigir". |
+| Asesores | Quién participa en más tesis y con qué rol, perfil por persona, sus publicaciones y "publicar vs. dirigir". |
 | Temas | Seguir términos en el tiempo, temas que crecen o se apagan, español vs. inglés. |
 | Colaboración | Mapa de calor entre laboratorios, flujo de codirección y duplas frecuentes. |
 | Producción | Productos por año, crecimiento animado por laboratorio, proyectos y revistas. |
@@ -18,13 +18,16 @@ asesor. Hecho con Streamlit y Plotly.
 ## Qué se publica y qué no
 
 - `export.py` lee la base `cic_scrape` y escribe en `data/` archivos Parquet **agregados**:
-  conteos por año, laboratorio, rol, revista, término o persona investigadora. No escribe
-  títulos, ids ni datos de estudiantes.
+  conteos por año, laboratorio, rol, revista, término o persona investigadora. La única
+  excepción son los títulos de artículos y congresos del personal investigador. No escribe
+  ids ni datos de estudiantes.
 - La app solo lee `data/`. No tiene conexión a la base de datos ni credenciales, y no ofrece
   tablas de títulos ni botones de descarga.
 - Los términos que aparecen en menos de tres títulos se descartan.
-- Los únicos títulos visibles son publicaciones del personal investigador que vienen de
-  [OpenAlex](https://openalex.org) (CC0), con enlace a su DOI. Ningún título de tesis.
+- Los títulos visibles son de artículos y congresos del personal investigador: los del
+  catálogo del CIC, con año y tipo, y los de [OpenAlex](https://openalex.org) (CC0), con
+  enlace a su DOI cuando lo tienen. Ningún título de tesis (tampoco las que indexa OpenAlex)
+  ni de proyectos.
 
 Lo que una gráfica muestra llega al navegador: los valores del tooltip se pueden leer y la
 barra de Plotly guarda un PNG. Que todo esté agregado antes es lo que lo vuelve inofensivo.

@@ -23,7 +23,30 @@ KIND_COLORS = {"Artículo": BLUE, "Congreso": CORAL}
 # Escalas sin extremos casi blancos ni casi negros, que desaparecerían en un modo u otro.
 TEAL_SCALE = ["#7ccfc0", "#1f8a7e"]
 ORANGE_SCALE = ["#f6b17a", "#c2410c"]
+# Un color fijo por laboratorio del CIC. Tonos intermedios y separados entre sí (ΔE ≥ 21)
+# para que se distingan sobre el fondo claro y el oscuro y entre pantallas sin calibración.
+# Van por nombre y no por posición: si el catálogo agrega o renombra un laboratorio, los
+# demás conservan el suyo.
+LAB_COLORS = {
+    "Ciberseguridad": "#2a9d8f",
+    "Ciencia de Datos y Tecnología de Software": "#4a90d9",
+    "Ciencias Cognitivas Computacionales": "#e76f51",
+    "Ciencias Matemáticas y Computacionales": "#9b7fd9",
+    "Ciencias de la Información Cuántica": "#f4a261",
+    "Cómputo Inteligente": "#e15f99",
+    "Inteligencia Artificial": "#8cd17d",
+    "Microtecnología y Sistemas Embebidos": "#9c755f",
+    "Procesamiento Digital de Señales": "#edc948",
+    "Procesamiento Inteligente de Información Geoespacial": "#6e899c",
+    "Procesamiento de Lenguaje Natural": "#ff9da7",
+    "Redes y Ciencia de Datos": "#b07aa1",
+    "Robótica y Mecatrónica": "#b68100",
+    "Simulación y Modelado": "#c77dff",
+    "Sistemas Inteligentes para la Automatización": "#c46a1b",
+}
 ALL_LABS = "Todos los laboratorios"
+# Marcas en un eje de años y años visibles por omisión: caben en un celular.
+YEAR_TICKS = 20
 AUTHOR = "Andrea Gutiérrez"
 AUTHOR_URL = "https://github.com/charecktowa"
 # El aviso del sitio del CIC pide citar la fuente completa y su dirección electrónica.
@@ -100,6 +123,26 @@ def snapshot() -> datetime.date:
     return load("meta")["snapshot"][0]
 
 
+def assign_lab_colors(labs: list[str]) -> dict[str, str]:
+    """El color de LAB_COLORS para cada laboratorio conocido.
+
+    Uno nuevo toma, en orden alfabético, un color que no use ningún otro laboratorio
+    presente; los colores solo se repiten si hay más laboratorios que colores.
+    """
+    colors = {lab: LAB_COLORS[lab] for lab in labs if lab in LAB_COLORS}
+    palette = list(LAB_COLORS.values())
+    free = [c for c in palette if c not in colors.values()] or palette
+    for i, lab in enumerate(sorted(set(labs) - set(colors))):
+        colors[lab] = free[i % len(free)]
+    return colors
+
+
+@st.cache_data
+def lab_colors() -> dict[str, str]:
+    """Un color estable por laboratorio: el mismo en todas las gráficas de la app."""
+    return assign_lab_colors(load("lab_stats")["lab"].to_list())
+
+
 def lab_code(lab: str) -> str:
     """Siglas de un laboratorio: "Robótica y Mecatrónica" → "RyM"."""
     if lab in LAB_CODE_OVERRIDES:
@@ -138,6 +181,45 @@ def show(fig, **kwargs):
         fig.update_yaxes(tickvals=list(categories), ticktext=[wrap(c) for c in categories])
         fig.update_layout(height=max(fig.layout.height or 0, WRAPPED_ROW * len(categories) + 100))
     return st.plotly_chart(fig, config=PLOT_CONFIG, width="stretch", **kwargs)
+
+
+def year_axis(fig, years: list[int]) -> None:
+    """Una marca legible por año, sin encimarlas en un celular.
+
+    Con hasta YEAR_TICKS años se etiqueta cada barra; con más, se salta años de forma
+    uniforme sin pasar de YEAR_TICKS marcas, y el último año siempre lleva la suya.
+    """
+    if not years:
+        return
+    # Los saltos cubren de la primera a la penúltima marca; la última es el año final.
+    step = 1 if len(years) <= YEAR_TICKS else math.ceil((len(years) - 1) / (YEAR_TICKS - 1))
+    ticks = years[::step]
+    if ticks[-1] != years[-1]:
+        # A medio salto o menos de la anterior, las dos etiquetas se encimarían.
+        if len(years) - 1 - years.index(ticks[-1]) <= step / 2:
+            ticks.pop()
+        ticks.append(years[-1])
+    fig.update_xaxes(
+        tickmode="array",
+        tickvals=ticks,
+        tickangle=-60,
+        tickfont_size=9,
+        automargin=True,
+    )
+
+
+def year_range(years: pl.Series, key: str) -> tuple[int, int]:
+    """Deslizador de años sobre `years`, de inicio en los últimos YEAR_TICKS años.
+
+    Con un solo año no hay nada que elegir y no se dibuja.
+    """
+    first, last = int(number(years.min())), int(number(years.max()))
+    if first < last:
+        control, _ = st.columns([3, 2])
+        first, last = control.slider(
+            "Años", first, last, (max(first, last - YEAR_TICKS + 1), last), key=key
+        )
+    return first, last
 
 
 def explain(markdown: str, label: str = "¿Cómo se calcula?") -> None:

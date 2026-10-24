@@ -19,6 +19,8 @@ from common import (
     load,
     load_optional,
     show,
+    year_axis,
+    year_range,
 )
 
 PURPLE = "#9b7fd9"
@@ -30,9 +32,10 @@ WORK_TYPES = {
     "book": "Libro",
     "preprint": "Preprint",
     "review": "Revisión",
-    "dissertation": "Tesis",
     "dataset": "Datos",
 }
+# Las tesis no se muestran, tampoco las de OpenAlex (ver openalex.HIDDEN_TYPES).
+HIDDEN_WORK_TYPES = ["dissertation"]
 # Caracteres que Markdown interpretaría dentro de un título.
 MARKDOWN_SPECIAL = str.maketrans({c: f"\\{c}" for c in "\\`*_{}[]<>()#+-.!|"})
 WORK_COLORS = {
@@ -44,17 +47,42 @@ WORK_COLORS = {
 }
 
 
+def catalog_lines(works: pl.DataFrame) -> list[str]:
+    """Títulos del catálogo del CIC como lista Markdown, con año y tipo."""
+    lines = []
+    for work in works.iter_rows(named=True):
+        parts = [f"**{work['title'].translate(MARKDOWN_SPECIAL)}**"]
+        if work["year"]:
+            parts.append(str(work["year"]))
+        parts.append(work["kind"])
+        lines.append("1. " + " · ".join(parts))
+    return lines
+
+
+def openalex_lines(works: pl.DataFrame) -> list[str]:
+    """Trabajos de OpenAlex como lista Markdown, con año, tipo, citas y DOI."""
+    lines = []
+    for work in works.iter_rows(named=True):
+        parts = [f"**{work['title'].translate(MARKDOWN_SPECIAL)}**"]
+        if work["year"]:
+            parts.append(str(work["year"]))
+        parts.append(WORK_TYPES.get(work["type"], work["type"] or "Otro"))
+        if work["venue"]:
+            parts.append(f"*{work['venue'].translate(MARKDOWN_SPECIAL)}*")
+        parts.append(f"{work['cited_by_count']:,} citas")
+        if work["doi"]:
+            parts.append(f"[DOI]({work['doi']})")
+        if work["is_oa"]:
+            parts.append(":material/lock_open: acceso abierto")
+        lines.append("1. " + " · ".join(parts))
+    return lines
+
+
 def render_profile(person: str) -> None:
     """Cifras, tipos de trabajo, producción por año, temas y colaboración de una persona."""
     profile = load("people").filter(pl.col("person") == person).row(0, named=True)
     per_year = load("person_year").filter(pl.col("person") == person)
-    sparkline = (
-        per_year.filter(pl.col("year").is_between(2005, 2025))
-        .group_by("year")
-        .agg(pl.sum("outputs"))
-        .sort("year")["outputs"]
-        .to_list()
-    )
+    sparkline = per_year.group_by("year").agg(pl.sum("outputs")).sort("year")["outputs"].to_list()
 
     st.caption(profile["lab"] or "Sin laboratorio en el CIC (participa como persona externa)")
     with st.container(horizontal=True, gap="small"):
@@ -128,12 +156,15 @@ def render_profile(person: str) -> None:
                 )
                 fig.update_layout(height=300, legend={"orientation": "h", "y": -0.25})
                 show(fig)
+        render_catalog_titles(person)
     with by_year:
         if per_year.is_empty():
             st.caption("Sin artículos ni congresos con año en el catálogo.")
         else:
+            first, last = year_range(per_year["year"], key=f"years-{person}")
+            scoped = per_year.filter(pl.col("year").is_between(first, last))
             fig = px.bar(
-                per_year.sort("year"),
+                scoped.sort("year"),
                 x="year",
                 y="outputs",
                 color="kind",
@@ -141,6 +172,7 @@ def render_profile(person: str) -> None:
                 labels=LABELS,
             )
             fig.update_layout(height=320, legend={"orientation": "h", "y": 1.1})
+            year_axis(fig, scoped["year"].unique().sort().to_list())
             show(fig)
         st.caption(
             "Las tesis no tienen año en el catálogo del CIC, así que no pueden ir en esta línea "
@@ -197,6 +229,26 @@ def render_profile(person: str) -> None:
     )
 
 
+def render_catalog_titles(person: str) -> None:
+    """Las 5 publicaciones más recientes del catálogo del CIC y, desplegables, hasta 30."""
+    titles = load_optional("output_titles")
+    works = (
+        titles.filter(pl.col("person") == person).sort("year", descending=True, nulls_last=True)
+        if titles is not None
+        else None
+    )
+    if works is None or works.is_empty():
+        return
+    st.markdown("**Publicaciones en el catálogo del CIC**")
+    st.markdown("\n".join(catalog_lines(works.head(5))))
+    if works.height <= 5:
+        return
+    with st.expander(f"Ver las {works.height} publicaciones del catálogo"):
+        st.markdown("\n".join(catalog_lines(works.head(30))))
+        if works.height > 30:
+            st.caption(f"Se muestran las 30 más recientes de {works.height}.")
+
+
 def render_openalex(person: str) -> None:
     """Métricas, citas por año y trabajos más citados según OpenAlex."""
     authors = load_optional("openalex_authors")
@@ -223,6 +275,13 @@ def render_openalex(person: str) -> None:
         )
     if author["topics"]:
         st.caption(f"Temas según OpenAlex: {author['topics']}")
+    ids = [i for i in author["openalex_ids"].split("|") if i]
+    if ids:
+        st.link_button(
+            "Ver perfil en OpenAlex",
+            f"{OPENALEX_URL}/{ids[0]}",
+            icon=":material/open_in_new:",
+        )
 
     years = load_optional("openalex_years")
     if years is not None:
@@ -237,31 +296,24 @@ def render_openalex(person: str) -> None:
                 title="Citas recibidas por año",
             )
             fig.update_layout(height=280)
+            year_axis(fig, cited["year"].unique().sort().to_list())
             show(fig)
 
     works = load_optional("openalex_works")
+    # Una instantánea anterior al filtro de openalex.py aún puede traer tesis.
     top = (
-        works.filter(pl.col("person") == person).sort("cited_by_count", descending=True).head(10)
+        works.filter((pl.col("person") == person) & ~pl.col("type").is_in(HIDDEN_WORK_TYPES)).sort(
+            "cited_by_count", descending=True
+        )
         if works is not None
         else None
     )
     if top is not None and not top.is_empty():
         st.markdown("**Trabajos más citados**")
-        lines = []
-        for work in top.iter_rows(named=True):
-            parts = [f"**{work['title'].translate(MARKDOWN_SPECIAL)}**"]
-            if work["year"]:
-                parts.append(str(work["year"]))
-            parts.append(WORK_TYPES.get(work["type"], work["type"] or "Otro"))
-            if work["venue"]:
-                parts.append(f"*{work['venue'].translate(MARKDOWN_SPECIAL)}*")
-            parts.append(f"{work['cited_by_count']:,} citas")
-            if work["doi"]:
-                parts.append(f"[DOI]({work['doi']})")
-            if work["is_oa"]:
-                parts.append(":material/lock_open: acceso abierto")
-            lines.append("1. " + " · ".join(parts))
-        st.markdown("\n".join(lines))
+        st.markdown("\n".join(openalex_lines(top.head(10))))
+        if top.height > 10:
+            with st.expander(f"Ver los {top.height} trabajos guardados"):
+                st.markdown("\n".join(openalex_lines(top.slice(10))))
     st.caption(
         f"Fuente: [OpenAlex]({OPENALEX_URL}), datos de dominio público (CC0). OpenAlex cuenta "
         "todo lo que tiene indexado, no solo lo registrado en el sitio del CIC, así que sus "
