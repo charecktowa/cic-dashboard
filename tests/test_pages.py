@@ -678,3 +678,38 @@ def test_cic_venues_explain_how_many_products_they_cover() -> None:
     total = dict(common.load("totals").iter_rows())["Artículos y congresos"]
     text = " ".join(m.value for m in open_page("produccion").markdown)
     assert f"{with_venue:,} de {total:,} productos" in text
+
+
+def openalex_venue_page(lab: str | None = None) -> AppTest:
+    """Producción con la fuente OpenAlex y, si se da, un laboratorio."""
+    app = open_page("produccion")
+    if lab is not None:
+        app.selectbox(key="venue_lab").set_value(lab).run()
+    app.segmented_control(key="venue_source").set_value("OpenAlex").run()
+    assert not app.exception, app.exception
+    return app
+
+
+@pytest.mark.usefixtures("tables")
+def test_cic_venues_can_come_from_openalex() -> None:
+    import common
+
+    bars = [
+        trace
+        for spec in chart_specs(openalex_venue_page())
+        for trace in spec["data"]
+        if trace.get("marker", {}).get("color") == common.PURPLE
+    ]
+    assert len(bars) == 1
+    assert bars[0]["y"] == ["IEEE Access"]
+    assert numbers(bars[0]["x"]) == [9]
+
+
+@pytest.mark.usefixtures("tables")
+def test_a_lab_without_openalex_profiles_says_so() -> None:
+    import common
+
+    linked = common.load("openalex_cic_venues")["lab"].drop_nulls().to_list()
+    unlinked = next(lab for lab in common.load("lab_stats")["lab"] if lab not in linked)
+    app = openalex_venue_page(unlinked)
+    assert any("perfil de OpenAlex vinculado" in info.value for info in app.info)

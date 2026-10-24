@@ -9,20 +9,24 @@ from common import (
     CURRENT_YEAR,
     KIND_COLORS,
     LABELS,
+    OPENALEX_URL,
     TEAL,
     explain,
     footer,
     lab_colors,
     load,
+    load_optional,
     number,
     ratio,
     show,
+    show_openalex_venues,
     show_venues,
     year_axis,
 )
 
 outputs = load("outputs_by_year")
 lab_names = sorted(load("lab_stats")["lab"])
+CATALOG, OPENALEX = "Catálogo del CIC", "OpenAlex"
 
 st.title("Producción")
 st.markdown(
@@ -173,22 +177,32 @@ with right:
 
 st.subheader("¿Dónde publica el CIC?")
 venues = load("venues")
+openalex_venues = load_optional("openalex_cic_venues")
 left, middle, right = st.columns([2, 2, 1])
 venue_lab = left.selectbox("Laboratorio", [ALL_LABS, *lab_names], key="venue_lab")
-venue_kind = middle.segmented_control(
-    "Tipo", ["Todos", *sorted(venues["kind"].unique())], default="Todos", required=True
+venue_source = middle.segmented_control(
+    "Fuente", [CATALOG, OPENALEX], default=CATALOG, required=True, key="venue_source"
 )
 venue_top = right.slider("Cuántas", 5, 40, 15, step=5)
+in_lab = pl.col("lab").is_null() if venue_lab == ALL_LABS else pl.col("lab") == venue_lab
 
-scoped = venues.filter(
-    pl.col("lab").is_null() if venue_lab == ALL_LABS else pl.col("lab") == venue_lab
-)
-if venue_kind != "Todos":
-    scoped = scoped.filter(pl.col("kind") == venue_kind)
-if not show_venues(scoped, venue_top):
-    st.info("No hay productos con revista o congreso registrado para esta selección.")
+if venue_source == CATALOG:
+    venue_kind = st.segmented_control(
+        "Tipo", ["Todos", *sorted(venues["kind"].unique())], default="Todos", required=True
+    )
+    scoped = venues.filter(in_lab)
+    if venue_kind != "Todos":
+        scoped = scoped.filter(pl.col("kind") == venue_kind)
+    if not show_venues(scoped, venue_top):
+        st.info("No hay productos con revista o congreso registrado para esta selección.")
+elif openalex_venues is None:
+    st.info("Esta instantánea de datos todavía no incluye las revistas de OpenAlex.")
+elif not show_openalex_venues(openalex_venues.filter(in_lab), venue_top):
+    st.info("Ninguna persona de este laboratorio tiene un perfil de OpenAlex vinculado.")
 with_venue = venues.filter(pl.col("lab").is_null())["outputs"].sum()
 all_outputs = dict(load("totals").iter_rows())["Artículos y congresos"]
+authors = load_optional("openalex_authors")
+linked = 0 if authors is None else authors.height
 explain(
     f"""
 - **Qué cuenta:** los artículos en revista y los trabajos en congreso del catálogo del CIC
@@ -201,6 +215,12 @@ explain(
 - **Todos los años juntos.** Pasa el cursor sobre una barra para ver el primer y el último
   año con un producto ahí. Con el tipo en **Todos**, cada barra se divide en artículos y
   congresos.
+
+Con la fuente **OpenAlex**, cuentan los trabajos que [OpenAlex]({OPENALEX_URL}) (CC0) indexa
+de las {linked} personas investigadoras con perfil vinculado: revistas, congresos y series de
+libros, sin tesis ni repositorios como arXiv. Abarca toda su trayectoria, también lo que
+publicaron antes de llegar al CIC, y no separa artículos de congresos. Un trabajo firmado por
+varias personas del CIC cuenta una vez.
 
 Si estás por publicar, esta lista es una buena pista de dónde suelen enviar sus trabajos en
 tu laboratorio.

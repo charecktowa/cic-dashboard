@@ -160,11 +160,11 @@ def catalog() -> dict[str, pl.DataFrame]:
 def tables(catalog: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     built = export.build(catalog)
     export.write(built, FAKE_DATA)
-    write_fake_openalex()
+    write_fake_openalex(built["people"])
     return built
 
 
-def write_fake_openalex() -> None:
+def write_fake_openalex(people: pl.DataFrame) -> None:
     """Datos de OpenAlex para una sola persona: las demás no tienen perfil vinculado."""
     pl.DataFrame(
         {
@@ -195,3 +195,9 @@ def write_fake_openalex() -> None:
     pl.DataFrame(
         {"person": ["Persona 1"] * 2, "venue": ["IEEE Access", "arXiv"], "works": [9, 4]}
     ).write_parquet(FAKE_DATA / "openalex_venues.parquet")
+    # Todo el CIC (lab nulo) y el laboratorio de Persona 1, la única con perfil.
+    lab = people.filter(pl.col("person") == "Persona 1")["lab"][0]
+    pl.DataFrame(
+        {"lab": [None, lab], "venue": ["IEEE Access"] * 2, "works": [9, 9]},
+        schema={"lab": pl.String, "venue": pl.String, "works": pl.Int64},
+    ).write_parquet(FAKE_DATA / "openalex_cic_venues.parquet")
