@@ -12,10 +12,12 @@ from common import (
     TEAL,
     explain,
     footer,
+    lab_colors,
     load,
     number,
     ratio,
     show,
+    year_axis,
 )
 
 outputs = load("outputs_by_year")
@@ -57,6 +59,7 @@ if split == "Tipo":
 else:
     by_year = scoped.drop_nulls("lab").group_by("year", "lab").agg(pl.sum("outputs"))
     fig = px.area(by_year.sort("year", "lab"), x="year", y="outputs", color="lab", labels=LABELS)
+year_axis(fig, scoped["year"].unique().sort().to_list())
 show(fig)
 st.caption(
     "Un producto con autores de dos laboratorios cuenta una vez para cada uno al separar por "
@@ -92,6 +95,7 @@ fig = px.bar(
     orientation="h",
     animation_frame="year",
     color="lab",
+    color_discrete_map=lab_colors(),
     range_x=[0, number(grid["total"].max()) * 1.05],
     category_orders={"lab": order},
     labels={**LABELS, "total": "Productos acumulados"},
@@ -142,6 +146,7 @@ with left:
         labels=LABELS,
         title="Proyectos por año",
     )
+    year_axis(fig, per_year["year"].unique().sort().to_list())
     show(fig)
 with right:
     sizes = staffed.group_by("members").agg(pl.sum("projects")).sort("members")

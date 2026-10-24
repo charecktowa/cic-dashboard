@@ -1,8 +1,10 @@
-"""Construye la instantánea del tablero: archivos Parquet agregados del catálogo CIC.
+"""Construye la instantánea del tablero: archivos Parquet del catálogo CIC.
 
-Todo lo que escribe este script ya está agregado: conteos por año, laboratorio,
-rol, revista o término. No sale ningún título, id ni nombre de estudiante, así
-que la carpeta data/ se puede copiar a un servidor público.
+Todo lo que escribe este script está agregado: conteos por año, laboratorio,
+rol, revista o término. La única excepción son los títulos de artículos y
+congresos del personal investigador (nunca de tesis ni de proyectos). No sale
+ningún id ni nombre de estudiante, así que la carpeta data/ se puede copiar a
+un servidor público.
 
 Se ejecuta donde la base de datos es accesible:
 
@@ -518,8 +520,35 @@ def term_tables(
     }
 
 
+def output_titles(d: dict[str, pl.DataFrame], kept: pl.DataFrame) -> pl.DataFrame:
+    """Títulos de artículos y congresos del personal investigador.
+
+    Nunca se incluyen títulos de tesis ni de proyectos: solo publicaciones del personal
+    investigador, que ya son públicas y llevan su nombre en el sitio del CIC.
+    """
+    return (
+        d["output_authors"]
+        .join(d["outputs"].select("product_id", "title", "year", "kind"), on="product_id")
+        .join(d["people"].select("person_id", "person"), on="person_id")
+        .join(kept, on="person", how="semi")
+        .filter(
+            pl.col("kind").is_in(list(KINDS.values()))
+            & pl.col("title").is_not_null()
+            & (pl.col("title").str.len_chars() > 0)
+        )
+        .select("person", "title", "year", "kind")
+        .unique()
+        .sort("person", "year", descending=[False, True], nulls_last=True)
+    )
+
+
 def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     """Todas las tablas agregadas a partir de las tablas a nivel de registro."""
+    # Un año futuro es un error de captura: no debe mover totales ni tendencias.
+    d = {
+        **d,
+        "outputs": d["outputs"].filter(pl.col("year").is_null() | (pl.col("year") <= CURRENT_YEAR)),
+    }
     profiles = people_profiles(d)
     docs = documents(d)
     by_scope, by_team = project_stats(d)
@@ -535,6 +564,7 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
         "projects_by_scope": by_scope,
         "projects_by_team": by_team,
         "venues": venues(d),
+        "output_titles": output_titles(d, profiles["people"].select("person")),
         **term_tables(
             docs["docs"],
             docs["doc_labs"],

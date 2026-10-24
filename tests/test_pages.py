@@ -87,3 +87,40 @@ def test_missing_optional_table_is_none() -> None:
     import common
 
     assert common.load_optional("no_existe") is None
+
+
+@pytest.mark.usefixtures("tables")
+def test_profile_lists_catalog_titles() -> None:
+    script = """
+import streamlit as st
+from advisor import render_profile
+render_profile('Persona 1')
+"""
+    app = AppTest.from_string(script, default_timeout=60).run()
+    assert not app.exception, app.exception
+    assert any("catálogo del CIC" in m.value for m in app.markdown)
+
+
+@pytest.mark.usefixtures("tables")
+def test_lab_colors_are_distinct() -> None:
+    import common
+
+    colors = common.lab_colors()
+    assert set(colors) == set(common.load("lab_stats")["lab"])
+    assert len(set(colors.values())) == len(colors)
+
+
+def test_year_axis_marks_every_year() -> None:
+    import plotly.graph_objects as go
+
+    import common
+
+    fig = go.Figure(go.Bar(x=[2020, 2021], y=[1, 2]))
+    common.year_axis(fig, [2020, 2021])
+    assert fig.layout.xaxis.tickmode == "array"
+    assert list(fig.layout.xaxis.tickvals) == [2020, 2021]
+    assert fig.layout.xaxis.tickangle == -60
+
+    empty = go.Figure()
+    common.year_axis(empty, [])
+    assert empty.layout.xaxis.tickmode is None

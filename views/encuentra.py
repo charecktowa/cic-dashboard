@@ -4,7 +4,7 @@ import streamlit as st
 
 import text
 from advisor import profile_dialog
-from common import LABELS, TEAL_SCALE, explain, footer, load, match, show
+from common import LABELS, TEAL_SCALE, explain, footer, lab_colors, load, match, show
 
 EXAMPLES = {
     "Noticias falsas": "detección de noticias falsas en redes sociales con lenguaje natural",
@@ -101,6 +101,7 @@ with right:
         y="person",
         orientation="h",
         color="lab",
+        color_discrete_map=lab_colors(),
         hover_data={"lab": True, "matched": True, "affinity": True},
         labels=LABELS,
         # Un color por laboratorio parte las barras en series; sin esto Plotly las

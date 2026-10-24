@@ -23,6 +23,25 @@ KIND_COLORS = {"Artículo": BLUE, "Congreso": CORAL}
 # Escalas sin extremos casi blancos ni casi negros, que desaparecerían en un modo u otro.
 TEAL_SCALE = ["#7ccfc0", "#1f8a7e"]
 ORANGE_SCALE = ["#f6b17a", "#c2410c"]
+# Un color por laboratorio. Tonos intermedios y separados entre sí (ΔE ≥ 21) para que
+# se distingan sobre el fondo claro y el oscuro y entre pantallas sin calibración.
+LAB_PALETTE = [
+    "#2a9d8f",
+    "#4a90d9",
+    "#e76f51",
+    "#9b7fd9",
+    "#f4a261",
+    "#e15f99",
+    "#8cd17d",
+    "#9c755f",
+    "#edc948",
+    "#6e899c",
+    "#ff9da7",
+    "#b07aa1",
+    "#b68100",
+    "#c77dff",
+    "#c46a1b",
+]
 ALL_LABS = "Todos los laboratorios"
 AUTHOR = "Andrea Gutiérrez"
 AUTHOR_URL = "https://github.com/charecktowa"
@@ -100,6 +119,13 @@ def snapshot() -> datetime.date:
     return load("meta")["snapshot"][0]
 
 
+@st.cache_data
+def lab_colors() -> dict[str, str]:
+    """Un color estable por laboratorio: el mismo en todas las gráficas de la app."""
+    labs = sorted(load("lab_stats")["lab"].to_list())
+    return {lab: LAB_PALETTE[i % len(LAB_PALETTE)] for i, lab in enumerate(labs)}
+
+
 def lab_code(lab: str) -> str:
     """Siglas de un laboratorio: "Robótica y Mecatrónica" → "RyM"."""
     if lab in LAB_CODE_OVERRIDES:
@@ -138,6 +164,27 @@ def show(fig, **kwargs):
         fig.update_yaxes(tickvals=list(categories), ticktext=[wrap(c) for c in categories])
         fig.update_layout(height=max(fig.layout.height or 0, WRAPPED_ROW * len(categories) + 100))
     return st.plotly_chart(fig, config=PLOT_CONFIG, width="stretch", **kwargs)
+
+
+def year_axis(fig, years: list[int]) -> None:
+    """Una marca legible por año, sin encimarlas en un celular.
+
+    Con hasta veinte años se etiqueta cada barra; con más, se salta años de forma
+    uniforme para no pasar de veinte marcas.
+    """
+    if not years:
+        return
+    step = max(1, math.ceil(len(years) / 20))
+    ticks = years[::step]
+    if ticks[-1] != years[-1]:
+        ticks.append(years[-1])
+    fig.update_xaxes(
+        tickmode="array",
+        tickvals=ticks,
+        tickangle=-60,
+        tickfont_size=9,
+        automargin=True,
+    )
 
 
 def explain(markdown: str, label: str = "¿Cómo se calcula?") -> None:
