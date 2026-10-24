@@ -38,6 +38,8 @@ HIDDEN_TYPES = ("dissertation",)
 # Fuentes que son lugares donde se publica. Quedan fuera los repositorios (arXiv, SSRN,
 # LA Referencia) y las plataformas de libros electrónicos (Springer eBooks).
 VENUE_TYPES = ("journal", "conference", "book series")
+# OpenAlex acepta hasta 100 valores unidos con "|" en un mismo filtro.
+MAX_FILTER_VALUES = 100
 IPN_NAMES = ("instituto politecnico nacional", "national polytechnic institute")
 FIELDS = ["person", "openalex_ids", "display_name", "works_count", "institution", "status"]
 # Estado de una fila revisada a mano: match la respeta.
@@ -182,22 +184,57 @@ def works_filter(ids: list[str]) -> str:
     return f"author.id:{'|'.join(ids)}" + "".join(f",type:!{t}" for t in HIDDEN_TYPES)
 
 
-def venue_counts(person: str, ids: list[str]) -> list[dict[str, Any]]:
-    """Todos sus trabajos por revista o congreso, no solo los más citados.
+def venue_groups(ids: list[str]) -> list[tuple[str, int]]:
+    """Los trabajos de estos autores por revista o congreso: (nombre, trabajos).
 
     Una sola consulta agrupada trae hasta 200 revistas, de la que más trabajos tiene a la
-    que menos. Solo cuentan los tipos de VENUE_TYPES; los trabajos sin revista no forman
-    grupo.
+    que menos, y cuenta una vez un trabajo firmado por varios de estos autores. Solo cuentan
+    los tipos de VENUE_TYPES; los trabajos sin revista no forman grupo.
     """
     venues_only = f",primary_location.source.type:{'|'.join(VENUE_TYPES)}"
     groups = get(
         "/works", filter=works_filter(ids) + venues_only, group_by="primary_location.source.id"
     )
     return [
-        {"person": person, "venue": group["key_display_name"], "works": group["count"]}
+        (group["key_display_name"], group["count"])
         for group in groups["group_by"]
         if group["key_display_name"]
     ]
+
+
+def venue_counts(person: str, ids: list[str]) -> list[dict[str, Any]]:
+    """Todos sus trabajos por revista o congreso, no solo los más citados."""
+    return [{"person": person, "venue": v, "works": n} for v, n in venue_groups(ids)]
+
+
+def cic_venue_counts(mapping: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """Trabajos por revista de todo el CIC (lab nulo) y de cada laboratorio.
+
+    Sumar las revistas de cada persona contaría dos veces un artículo con dos autores del
+    CIC; una consulta con los ids de todo el grupo lo cuenta una vez. Solo cuenta el
+    personal actual con laboratorio: el CSV conserva a quien ya se fue o a quien se agregó a
+    mano, y su trayectoria no es del CIC.
+    """
+    people = pl.read_parquet(DATA / "people.parquet").drop_nulls("lab")
+    labs = dict(people.select("person", "lab").iter_rows())
+    groups: dict[str | None, list[str]] = {None: []}
+    for row in mapping:
+        if row["person"] not in labs:
+            continue
+        ids = split_ids(row)
+        groups[None] += ids
+        groups.setdefault(labs[row["person"]], []).extend(ids)
+    rows = []
+    for lab, ids in groups.items():
+        unique = list(dict.fromkeys(ids))
+        if len(unique) > MAX_FILTER_VALUES:
+            raise SystemExit(
+                f"{len(unique)} ids de OpenAlex en {lab or 'el CIC'}: el filtro acepta hasta "
+                f"{MAX_FILTER_VALUES}. Hay que partir la consulta."
+            )
+        if unique:
+            rows += [{"lab": lab, "venue": v, "works": n} for v, n in venue_groups(unique)]
+    return rows
 
 
 def fetch() -> None:
@@ -256,6 +293,9 @@ def fetch() -> None:
                 }
             )
         print(f"{person}: {authors[-1]['cited_by_count']:,} citas, {len(listed)} trabajos")
+    # Todas las consultas van antes de escribir: si OpenAlex falla a medias (por ejemplo,
+    # se acaba el presupuesto del día), los archivos anteriores quedan como estaban.
+    cic_venues = cic_venue_counts(mapping)
 
     pl.DataFrame(authors).write_parquet(DATA / "openalex_authors.parquet")
     pl.DataFrame(years).group_by("person", "year").agg(pl.sum("works", "citations")).write_parquet(
@@ -265,6 +305,10 @@ def fetch() -> None:
     pl.DataFrame(
         venues, schema={"person": pl.String, "venue": pl.String, "works": pl.Int64}
     ).write_parquet(DATA / "openalex_venues.parquet")
+    pl.DataFrame(
+        cic_venues,
+        schema={"lab": pl.String, "venue": pl.String, "works": pl.Int64},
+    ).write_parquet(DATA / "openalex_cic_venues.parquet")
     print(f"\n{len(authors)} perfiles de OpenAlex escritos en {DATA}")
 
 

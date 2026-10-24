@@ -10,7 +10,9 @@ from common import (
     CORAL,
     KIND_COLORS,
     LABELS,
+    OPENALEX_URL,
     ORANGE,
+    PURPLE,
     ROLE_COLORS,
     ROLES,
     TEAL,
@@ -23,6 +25,7 @@ from common import (
     load,
     load_optional,
     show,
+    show_openalex_venues,
     show_terms,
     show_venues,
     sparkline_help,
@@ -30,8 +33,6 @@ from common import (
     year_range,
 )
 
-PURPLE = "#9b7fd9"
-OPENALEX_URL = "https://openalex.org"
 WORK_TYPES = {
     "article": "Artículo",
     "conference-paper": "Congreso",
@@ -325,34 +326,19 @@ def render_catalog_venues(person: str) -> None:
 def render_openalex_venues(person: str) -> None:
     """Las revistas y congresos con más de sus trabajos en OpenAlex."""
     venues = load_optional("openalex_venues")
-    top = (
-        venues.filter(pl.col("person") == person)
-        .group_by("venue")
-        .agg(pl.sum("works"))
-        .sort("works", "venue", descending=[True, False])
-        .head(VENUES_SHOWN)
+    shown = (
+        show_openalex_venues(venues.filter(pl.col("person") == person), VENUES_SHOWN)
         if venues is not None
-        else None
+        else 0
     )
-    if top is None or top.is_empty():
+    if not shown:
         st.caption(
             "Sin revistas de OpenAlex: esta persona no tiene un perfil vinculado, o la "
             "instantánea de datos todavía no las incluye."
         )
         return
-    fig = px.bar(
-        top,
-        x="works",
-        y="venue",
-        orientation="h",
-        color_discrete_sequence=[PURPLE],
-        labels={**LABELS, "works": "Trabajos en OpenAlex"},
-    )
-    fig.update_yaxes(categoryorder="total ascending")
-    fig.update_layout(height=24 * top.height + 100)
-    show(fig)
     st.caption(
-        f"Sus {top.height} revistas y congresos con más trabajos en "
+        f"Sus {shown} revistas y congresos con más trabajos en "
         f"[OpenAlex]({OPENALEX_URL}) (CC0): revistas, congresos y series de libros, sin "
         "tesis ni repositorios como arXiv o SSRN. OpenAlex indexa más de lo que registra el "
         "sitio del CIC, así que puede diferir del catálogo."

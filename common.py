@@ -19,6 +19,7 @@ CURRENT_YEAR = datetime.date.today().year
 ROLES = ["Director 1", "Director 2", "Comité tutorial"]
 # Tonos intermedios: se leen igual sobre el fondo claro y sobre el oscuro.
 TEAL, BLUE, ORANGE, CORAL = "#2a9d8f", "#4a90d9", "#f4a261", "#e76f51"
+PURPLE = "#9b7fd9"
 ROLE_COLORS = {"Director 1": TEAL, "Director 2": BLUE, "Comité tutorial": ORANGE}
 KIND_COLORS = {"Artículo": BLUE, "Congreso": CORAL}
 # El naranja es más oscuro que ORANGE: junto al verde azulado se distinguen también con
@@ -76,6 +77,7 @@ REPO_URL = "https://github.com/charecktowa/cic-dashboard"
 # El aviso del sitio del CIC pide citar la fuente completa y su dirección electrónica.
 SOURCE = "Centro de Investigación en Computación (CIC) del Instituto Politécnico Nacional"
 SOURCE_URL = "https://www.cic.ipn.mx"
+OPENALEX_URL = "https://openalex.org"
 # El botón de PNG es inofensivo; la selección por caja o lazo no aporta aquí.
 PLOT_CONFIG = {"displaylogo": False, "modeBarButtonsToRemove": ["select2d", "lasso2d"]}
 
@@ -270,6 +272,33 @@ def show_venues(rows: pl.DataFrame, n: int) -> int:
         height=24 * top.height + 120,
         legend={"orientation": "h", "y": 1.02, "yanchor": "bottom"},
     )
+    show(fig)
+    return top.height
+
+
+def show_openalex_venues(rows: pl.DataFrame, n: int) -> int:
+    """Las `n` revistas o congresos con más trabajos en OpenAlex.
+
+    `rows` trae venue y works. Devuelve cuántas revistas dibujó: 0 si no hay ninguna.
+    """
+    top = (
+        rows.group_by("venue")
+        .agg(pl.sum("works"))
+        .sort("works", "venue", descending=[True, False])
+        .head(n)
+    )
+    if top.is_empty():
+        return 0
+    fig = px.bar(
+        top,
+        x="works",
+        y="venue",
+        orientation="h",
+        color_discrete_sequence=[PURPLE],
+        labels={**LABELS, "works": "Trabajos en OpenAlex"},
+    )
+    fig.update_yaxes(categoryorder="total ascending")
+    fig.update_layout(height=24 * top.height + 100)
     show(fig)
     return top.height
 
