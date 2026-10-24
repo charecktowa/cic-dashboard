@@ -175,3 +175,27 @@ def test_person_venues_add_up_to_each_profile(tables: dict[str, pl.DataFrame]) -
     assert_frame_equal(by_person, expected, check_row_order=False, check_dtypes=False)
     # Una revista se llama igual en el perfil de una persona que en el de su laboratorio.
     assert set(tables["person_venues"]["venue"]) <= set(tables["venues"]["venue"])
+
+
+def test_person_venues_match_the_catalog(
+    catalog: dict[str, pl.DataFrame], tables: dict[str, pl.DataFrame]
+) -> None:
+    # Calculado directo del catálogo: los totales podrían cuadrar aunque un producto
+    # cayera en la revista equivocada. El catálogo falso escribe cada revista de una sola
+    # forma, así que su nombre es el que se publica.
+    dated = catalog["outputs"].filter(pl.col("year") <= datetime.date.today().year)
+    expected = (
+        catalog["output_authors"]
+        .join(catalog["people"].select("person_id", "person"), on="person_id")
+        .join(tables["people"].select("person"), on="person")
+        .join(dated, on="product_id")
+        .group_by("person", "venue", "kind")
+        .agg(outputs=pl.col("product_id").n_unique(), first=pl.min("year"), last=pl.max("year"))
+    )
+    assert_frame_equal(
+        tables["person_venues"],
+        expected,
+        check_row_order=False,
+        check_column_order=False,
+        check_dtypes=False,
+    )
