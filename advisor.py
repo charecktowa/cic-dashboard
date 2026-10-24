@@ -18,9 +18,9 @@ from common import (
     explain,
     load,
     load_optional,
-    number,
     show,
     year_axis,
+    year_range,
 )
 
 PURPLE = "#9b7fd9"
@@ -32,9 +32,10 @@ WORK_TYPES = {
     "book": "Libro",
     "preprint": "Preprint",
     "review": "Revisión",
-    "dissertation": "Tesis",
     "dataset": "Datos",
 }
+# Las tesis no se muestran, tampoco las de OpenAlex (ver openalex.HIDDEN_TYPES).
+HIDDEN_WORK_TYPES = ["dissertation"]
 # Caracteres que Markdown interpretaría dentro de un título.
 MARKDOWN_SPECIAL = str.maketrans({c: f"\\{c}" for c in "\\`*_{}[]<>()#+-.!|"})
 WORK_COLORS = {
@@ -155,34 +156,12 @@ def render_profile(person: str) -> None:
                 )
                 fig.update_layout(height=300, legend={"orientation": "h", "y": -0.25})
                 show(fig)
-        titles = load_optional("output_titles")
-        if titles is not None:
-            works = titles.filter(pl.col("person") == person).sort(
-                "year", descending=True, nulls_last=True
-            )
-            if not works.is_empty():
-                st.markdown("**Publicaciones en el catálogo del CIC**")
-                st.markdown("\n".join(catalog_lines(works.head(5))))
-                if works.height > 5:
-                    with st.expander(f"Ver las {works.height} publicaciones del catálogo"):
-                        st.markdown("\n".join(catalog_lines(works.head(30))))
-                        if works.height > 30:
-                            st.caption(f"Se muestran las 30 más recientes de {works.height}.")
+        render_catalog_titles(person)
     with by_year:
         if per_year.is_empty():
             st.caption("Sin artículos ni congresos con año en el catálogo.")
         else:
-            first = int(number(per_year["year"].min()))
-            last = int(number(per_year["year"].max()))
-            if first < last:
-                control, _ = st.columns([3, 2])
-                first, last = control.slider(
-                    "Años",
-                    first,
-                    last,
-                    (max(first, last - 19), last),
-                    key=f"years-{person}",
-                )
+            first, last = year_range(per_year["year"], key=f"years-{person}")
             scoped = per_year.filter(pl.col("year").is_between(first, last))
             fig = px.bar(
                 scoped.sort("year"),
@@ -250,6 +229,26 @@ def render_profile(person: str) -> None:
     )
 
 
+def render_catalog_titles(person: str) -> None:
+    """Las 5 publicaciones más recientes del catálogo del CIC y, desplegables, hasta 30."""
+    titles = load_optional("output_titles")
+    works = (
+        titles.filter(pl.col("person") == person).sort("year", descending=True, nulls_last=True)
+        if titles is not None
+        else None
+    )
+    if works is None or works.is_empty():
+        return
+    st.markdown("**Publicaciones en el catálogo del CIC**")
+    st.markdown("\n".join(catalog_lines(works.head(5))))
+    if works.height <= 5:
+        return
+    with st.expander(f"Ver las {works.height} publicaciones del catálogo"):
+        st.markdown("\n".join(catalog_lines(works.head(30))))
+        if works.height > 30:
+            st.caption(f"Se muestran las 30 más recientes de {works.height}.")
+
+
 def render_openalex(person: str) -> None:
     """Métricas, citas por año y trabajos más citados según OpenAlex."""
     authors = load_optional("openalex_authors")
@@ -301,8 +300,11 @@ def render_openalex(person: str) -> None:
             show(fig)
 
     works = load_optional("openalex_works")
+    # Una instantánea anterior al filtro de openalex.py aún puede traer tesis.
     top = (
-        works.filter(pl.col("person") == person).sort("cited_by_count", descending=True)
+        works.filter((pl.col("person") == person) & ~pl.col("type").is_in(HIDDEN_WORK_TYPES)).sort(
+            "cited_by_count", descending=True
+        )
         if works is not None
         else None
     )

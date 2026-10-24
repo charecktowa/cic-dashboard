@@ -14,9 +14,9 @@ from common import (
     footer,
     lab_colors,
     load,
-    number,
     show,
     year_axis,
+    year_range,
 )
 
 lab_stats = load("lab_stats")
@@ -167,17 +167,7 @@ with tab_years:
     if per_kind.is_empty():
         st.info("Este laboratorio no tiene productos con año en el catálogo.")
     else:
-        first = int(number(per_kind["year"].min()))
-        last = int(number(per_kind["year"].max()))
-        if first < last:
-            control, _ = st.columns([3, 2])
-            first, last = control.slider(
-                "Años",
-                first,
-                last,
-                (max(first, last - 19), last),
-                key=f"years-{lab}",
-            )
+        first, last = year_range(per_kind["year"], key=f"years-{lab}")
         scoped = per_kind.filter(pl.col("year").is_between(first, last))
         fig = px.bar(
             scoped,

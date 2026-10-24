@@ -9,6 +9,7 @@ from common import (
     ROLES,
     explain,
     footer,
+    lab_colors,
     load,
     show,
 )
@@ -106,6 +107,7 @@ fig = px.scatter(
     size="projects_led",
     size_max=35,
     color="lab",
+    color_discrete_map=lab_colors(),
     hover_name="person",
     hover_data={"lab": True, "outputs": True, "director_1": True, "projects_led": True},
     labels={**LABELS, "outputs": "Productos (artículos y congresos)"},

@@ -25,8 +25,9 @@ asesor. Hecho con Streamlit y Plotly.
   tablas de títulos ni botones de descarga.
 - Los términos que aparecen en menos de tres títulos se descartan.
 - Los títulos visibles son de artículos y congresos del personal investigador: los del
-  catálogo del CIC y los de [OpenAlex](https://openalex.org) (CC0), con enlace a su DOI.
-  Ningún título de tesis ni de proyectos.
+  catálogo del CIC, con año y tipo, y los de [OpenAlex](https://openalex.org) (CC0), con
+  enlace a su DOI cuando lo tienen. Ningún título de tesis (tampoco las que indexa OpenAlex)
+  ni de proyectos.
 
 Lo que una gráfica muestra llega al navegador: los valores del tooltip se pueden leer y la
 barra de Plotly guarda un PNG. Que todo esté agregado antes es lo que lo vuelve inofensivo.

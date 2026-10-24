@@ -58,7 +58,14 @@ if split == "Tipo":
     )
 else:
     by_year = scoped.drop_nulls("lab").group_by("year", "lab").agg(pl.sum("outputs"))
-    fig = px.area(by_year.sort("year", "lab"), x="year", y="outputs", color="lab", labels=LABELS)
+    fig = px.area(
+        by_year.sort("year", "lab"),
+        x="year",
+        y="outputs",
+        color="lab",
+        color_discrete_map=lab_colors(),
+        labels=LABELS,
+    )
 year_axis(fig, scoped["year"].unique().sort().to_list())
 show(fig)
 st.caption(
