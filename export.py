@@ -554,9 +554,11 @@ def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
             & pl.col("title").is_not_null()
             & (pl.col("title").str.len_chars() > 0)
         )
+        # Dos productos con el mismo título, año y tipo siguen siendo dos: el perfil
+        # los cuenta por separado y la lista debe coincidir con ese conteo.
+        .unique(["person_id", "product_id"])
+        .sort(["person", "year", "title"], descending=[False, True, False], nulls_last=True)
         .select("person", "title", "year", "kind")
-        .unique()
-        .sort("person", "year", descending=[False, True], nulls_last=True)
     )
 
 

@@ -108,6 +108,14 @@ def fake_catalog(seed: int = 7) -> dict[str, pl.DataFrame]:
     externals = [p[0] for p in people if p[3] is None]
     output_authors.append((1, externals[0]))
 
+    # Dos productos con el mismo título, año y tipo (por ejemplo, un artículo y su
+    # reedición) son dos publicaciones, y el perfil debe listar ambas.
+    reprint_id = 242
+    _, same_title, same_kind, same_year, _ = outputs[0]
+    outputs.append((reprint_id, same_title, same_kind, same_year, VENUES[1]))
+    output_labs += [(reprint_id, lab_id, lab) for pid, lab_id, lab in output_labs if pid == 1]
+    output_authors += [(reprint_id, person) for pid, person in output_authors if pid == 1]
+
     # Un año futuro es un error de captura: la instantánea debe descartarlo.
     future_id = 241
     outputs.append((future_id, title(labs[0]), "Artículo", YEAR + 1, VENUES[0]))

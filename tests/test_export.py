@@ -38,6 +38,15 @@ def test_titles_belong_to_research_staff(tables: dict[str, pl.DataFrame]) -> Non
     assert set(tables["output_titles"]["person"]) <= staff
 
 
+def test_profiles_list_every_publication(tables: dict[str, pl.DataFrame]) -> None:
+    listed = tables["output_titles"].group_by("person").agg(listed=pl.len())
+    counted = tables["people"].drop_nulls("lab").filter(pl.col("outputs") > 0)
+    both = counted.join(listed, on="person", how="left")
+    assert both["listed"].to_list() == both["outputs"].to_list()
+    repeated = tables["output_titles"].filter(pl.struct("person", "title", "year").is_duplicated())
+    assert not repeated.is_empty(), "el catálogo falso debe tener un título repetido"
+
+
 def test_no_future_years_reach_the_snapshot(tables: dict[str, pl.DataFrame]) -> None:
     this_year = datetime.date.today().year
     for name, frame in tables.items():
