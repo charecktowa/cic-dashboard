@@ -12,6 +12,7 @@ Se ejecuta donde la base de datos es accesible:
 import datetime
 import os
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import psycopg
@@ -27,7 +28,7 @@ MIN_TERM_TITLES = 3
 MIN_EXTERNAL_THESES = 3
 TOP_COLLABORATORS = 10
 
-PG = {
+PG: dict[str, Any] = {
     "host": os.environ.get("POSTGRES_HOST", "localhost"),
     "port": int(os.environ.get("POSTGRES_PORT", "5432")),
     "user": os.environ.get("POSTGRES_USER", "theiss"),
@@ -48,7 +49,7 @@ def query(sql: str) -> pl.DataFrame:
         options="-c statement_timeout=20000 -c default_transaction_read_only=on",
     ) as conn:
         cursor = conn.execute(sql)
-        columns = [column.name for column in cursor.description]
+        columns = [column.name for column in cursor.description or []]
         return pl.DataFrame(cursor.fetchall(), schema=columns, orient="row")
 
 
@@ -511,8 +512,8 @@ def term_tables(
     }
 
 
-def main() -> None:
-    d = load()
+def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
+    """Todas las tablas agregadas a partir de las tablas a nivel de registro."""
     profiles = people_profiles(d)
     docs = documents(d)
     by_scope, by_team = project_stats(d)
@@ -536,11 +537,22 @@ def main() -> None:
             profiles["people"].select("person"),
         ),
     }
-    OUT.mkdir(exist_ok=True)
-    for old in OUT.glob("*.parquet"):
+    return tables
+
+
+def write(tables: dict[str, pl.DataFrame], out: Path) -> None:
+    """Reemplaza la instantánea en `out` por estas tablas."""
+    out.mkdir(exist_ok=True)
+    for old in out.glob("*.parquet"):
         old.unlink()
     for name, frame in tables.items():
-        frame.write_parquet(OUT / f"{name}.parquet")
+        frame.write_parquet(out / f"{name}.parquet")
+
+
+def main() -> None:
+    tables = build(load())
+    write(tables, OUT)
+    for name, frame in tables.items():
         print(f"{name:>18}: {frame.height:>7,} filas")
     print(f"Instantánea escrita en {OUT} ({datetime.date.today()})")
 

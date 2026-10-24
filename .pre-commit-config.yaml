@@ -1,0 +1,51 @@
+# Mantén cada `rev` igual a la versión resuelta en uv.lock: los hooks corren en sus
+# propios entornos, así que una versión distinta revisa con reglas distintas a CI.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.2
+    hooks:
+      # Solo revisan: ningún hook reescribe el código que se está confirmando.
+      - id: ruff-check
+      - id: ruff-format
+        args: [--check]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.4.0
+    hooks:
+      - id: mypy
+        args: [--config-file=pyproject.toml]
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: [-r, ., -x, "./.venv,./tests", -c, pyproject.toml]
+        pass_filenames: false
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.38.2
+    hooks:
+      - id: check-github-workflows
+      - id: check-dependabot
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.31.1
+    hooks:
+      # Audita los workflows, incluidas acciones que no están fijadas a un commit.
+      - id: zizmor

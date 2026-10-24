@@ -2,15 +2,18 @@
 
 import datetime
 import math
+import os
 import textwrap
 from pathlib import Path
+from typing import SupportsFloat, cast
 
 import polars as pl
 import streamlit as st
 
 import text
 
-DATA = Path(__file__).parent / "data"
+# Las pruebas apuntan a una instantánea falsa con CIC_DATA_DIR.
+DATA = Path(os.environ.get("CIC_DATA_DIR", Path(__file__).parent / "data"))
 CURRENT_YEAR = datetime.date.today().year
 ROLES = ["Director 1", "Director 2", "Comité tutorial"]
 # Tonos intermedios: se leen igual sobre el fondo claro y sobre el oscuro.
@@ -23,6 +26,9 @@ ORANGE_SCALE = ["#f6b17a", "#c2410c"]
 ALL_LABS = "Todos los laboratorios"
 AUTHOR = "Andrea Gutiérrez"
 AUTHOR_URL = "https://github.com/charecktowa"
+# El aviso del sitio del CIC pide citar la fuente completa y su dirección electrónica.
+SOURCE = "Centro de Investigación en Computación (CIC) del Instituto Politécnico Nacional"
+SOURCE_URL = "https://www.cic.ipn.mx"
 # El botón de PNG es inofensivo; la selección por caja o lazo no aporta aquí.
 PLOT_CONFIG = {"displaylogo": False, "modeBarButtonsToRemove": ["select2d", "lasso2d"]}
 
@@ -138,8 +144,9 @@ def footer() -> None:
     st.divider()
     st.markdown(f"Hecho con ❤️ por **{AUTHOR}** · [@charecktowa]({AUTHOR_URL})")
     st.caption(
-        f"Datos del sitio público del CIC, instantánea del {snapshot():%d/%m/%Y}. "
-        "Proyecto independiente, sin relación oficial con el IPN ni el CIC."
+        f"Fuente: {SOURCE}, [{SOURCE_URL.removeprefix('https://')}]({SOURCE_URL}), "
+        f"consultado el {snapshot():%d/%m/%Y}. Proyecto independiente y sin fines de lucro, "
+        "sin relación oficial con el IPN ni el CIC."
     )
 
 
@@ -241,6 +248,16 @@ def distinctive(counts: pl.DataFrame, n: int) -> pl.DataFrame:
         .sort("score", descending=True)
         .head(n)
     )
+
+
+def number(value: object) -> float:
+    """Polars tipa sus agregados como cualquier escalar; en estas tablas son números."""
+    return float(cast(SupportsFloat, value))
+
+
+def ratio(part: object, whole: object) -> float:
+    """part / whole, sin dividir entre cero cuando no hay nada."""
+    return number(part) / max(number(whole), 1)
 
 
 def fmt_share(value: float | None) -> str:

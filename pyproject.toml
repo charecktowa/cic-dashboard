@@ -15,9 +15,13 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "bandit[toml]>=1.9.4",
+    "mypy>=2.4.0",
+    "pre-commit>=4.7.0",
+    "pytest>=9",
     "ruff>=0.17.2",
 ]
-# Only the machine that builds the snapshot talks to Postgres; the VPS does not.
+# Solo la máquina que construye la instantánea habla con Postgres; el VPS no.
 export = [
     "psycopg[binary]>=3.3.6",
 ]
@@ -28,3 +32,29 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "N", "PD"]
+
+[tool.ruff.lint.isort]
+# Explícito: la detección automática depende del directorio desde donde corre ruff.
+known-first-party = ["common", "export", "text", "views"]
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+warn_unused_ignores = true
+exclude = ["^\\.venv/"]
+
+[[tool.mypy.overrides]]
+# El código propio siempre debe resolverse; nunca debe volverse `Any` en silencio.
+module = ["common", "export", "text"]
+ignore_missing_imports = false
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+
+[tool.pytest]
+minversion = "9.0"
+testpaths = ["tests"]
+# Las pruebas importan los módulos desde la raíz del proyecto.
+pythonpath = ["."]
+addopts = ["--import-mode=importlib", "-ra"]
+strict = true

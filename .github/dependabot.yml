@@ -1,0 +1,47 @@
+version: 2
+updates:
+  # Espera una semana antes de adoptar una versión nueva, para que una versión
+  # comprometida tenga tiempo de descubrirse antes de llegar aquí.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      python-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "pre-commit"
+    # Las versiones de los hooks deben seguir iguales a las de uv.lock, así que
+    # estas actualizaciones van junto con las de uv.
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 7
+    groups:
+      pre-commit:
+        patterns: ["*"]
+
+  # Las imágenes base del Dockerfile (python y uv).
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 7
+    groups:
+      docker:
+        patterns: ["*"]

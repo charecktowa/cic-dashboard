@@ -3,7 +3,19 @@ import polars as pl
 import streamlit as st
 
 import text
-from common import CORAL, CURRENT_YEAR, LABELS, TEAL, explain, footer, load, rising_terms, show
+from common import (
+    CORAL,
+    CURRENT_YEAR,
+    LABELS,
+    TEAL,
+    explain,
+    footer,
+    load,
+    number,
+    ratio,
+    rising_terms,
+    show,
+)
 
 term_year, term_lab = load("term_year"), load("term_lab")
 SUGGESTIONS = {
@@ -50,7 +62,7 @@ else:
     if not dated.is_empty():
         # Los años sin coincidencias cuentan como cero para que las líneas no salten.
         all_years = pl.DataFrame(
-            {"year": range(dated["year"].min(), dated["year"].max() + 1)},
+            {"year": range(int(number(dated["year"].min())), int(number(dated["year"].max())) + 1)},
             schema={"year": pl.Int32},
         )
         dated = (
@@ -157,7 +169,7 @@ El año en curso es parcial, y el catálogo puede tardar en registrar lo más re
 st.subheader("¿Español o inglés?")
 language = load("language")
 theses_lang = language.filter(pl.col("source") == "Tesis")
-thesis_share = theses_lang["english"].sum() / max(theses_lang["titles"].sum(), 1)
+thesis_share = ratio(theses_lang["english"].sum(), theses_lang["titles"].sum())
 by_year = (
     language.drop_nulls("year")
     .filter(pl.col("year").is_between(CURRENT_YEAR - 25, CURRENT_YEAR) & (pl.col("titles") >= 5))

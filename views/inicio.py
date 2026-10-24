@@ -1,7 +1,7 @@
 import polars as pl
 import streamlit as st
 
-from common import CURRENT_YEAR, footer, load, rising_terms
+from common import CURRENT_YEAR, footer, load, ratio, rising_terms
 
 st.title("El CIC en datos")
 st.markdown(
@@ -80,8 +80,8 @@ recent_lang = load("language").filter(
     pl.col("year").is_between(CURRENT_YEAR - 5, CURRENT_YEAR)
     & pl.col("source").is_in(["Artículo", "Congreso"])
 )
-english = recent_lang["english"].sum() / max(recent_lang["titles"].sum(), 1)
-doctorate = labs["doctorate"].sum() / max(labs["theses"].sum(), 1)
+english = ratio(recent_lang["english"].sum(), recent_lang["titles"].sum())
+doctorate = ratio(labs["doctorate"].sum(), labs["theses"].sum())
 
 facts = [
     (

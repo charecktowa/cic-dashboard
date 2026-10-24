@@ -1,6 +1,6 @@
 import streamlit as st
 
-from common import AUTHOR, AUTHOR_URL, footer, load, snapshot
+from common import AUTHOR, AUTHOR_URL, SOURCE, SOURCE_URL, footer, load, snapshot
 
 totals = dict(load("totals").iter_rows())
 
@@ -9,10 +9,14 @@ st.markdown(
     f"""
 ### ¿De dónde salen los datos?
 
-Del **sitio público del CIC** (perfiles de personal investigador, laboratorios, tesis,
-proyectos, artículos y congresos), recopilado el **{snapshot():%d/%m/%Y}**. El catálogo
-tiene {totals["Tesis"]:,} tesis, {totals["Proyectos"]:,} proyectos y
-{totals["Artículos y congresos"]:,} artículos y congresos.
+Del sitio del **{SOURCE}**, [{SOURCE_URL}]({SOURCE_URL}): perfiles de personal
+investigador, laboratorios, tesis, proyectos, artículos y congresos, consultados el
+**{snapshot():%d/%m/%Y}**. El catálogo tiene {totals["Tesis"]:,} tesis, {totals["Proyectos"]:,}
+proyectos y {totals["Artículos y congresos"]:,} artículos y congresos.
+
+El sitio permite reproducir su contenido con fines no lucrativos, sin mutilarlo y citando la
+fuente completa. Este tablero no reproduce las páginas: calcula conteos a partir de ellas,
+cita su origen en cada página y no tiene fines de lucro.
 
 ### ¿Qué **no** se publica?
 

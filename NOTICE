@@ -1,0 +1,10 @@
+El CIC en datos
+Copyright 2026 Andrea Gutiérrez (@charecktowa)
+
+El código de este repositorio se distribuye bajo la Licencia Apache 2.0 (ver LICENSE).
+
+Los datos que muestra el tablero no forman parte del repositorio. Se calculan a partir
+del sitio del Centro de Investigación en Computación del Instituto Politécnico Nacional
+(https://www.cic.ipn.mx), cuyo contenido puede reproducirse con fines no lucrativos,
+siempre que no se mutile y se cite la fuente completa y su dirección electrónica. Este
+proyecto es independiente y sin fines de lucro, sin relación oficial con el IPN ni el CIC.

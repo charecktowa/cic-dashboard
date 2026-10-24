@@ -34,6 +34,7 @@ export.py        base de datos → data/*.parquet (solo en tu máquina)
 text.py          cómo se parte un texto en términos; lo usan export.py y la app
 common.py        carga de datos, etiquetas en español y utilidades de las páginas
 app.py           navegación
+tests/           pruebas con un catálogo inventado (sin base de datos)
 views/           una página por archivo
 .streamlit/      configuración: sin menú de desarrollador ni trazas de error para visitantes
 Dockerfile       imagen solo con la app (sin export.py ni psycopg)
@@ -169,9 +170,30 @@ ssh vps 'cd ~/cic-dashboard && docker compose restart'
 
 El reinicio es necesario porque `st.cache_data` guarda la instantánea en memoria.
 
-## Calidad
+## Desarrollo
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
+uv sync --all-groups          # app, export y herramientas
+uv run pre-commit install     # los mismos chequeos que CI, en cada commit
+uv run pytest                 # pruebas
 ```
+
+Las pruebas no usan la base de datos ni `data/`: `tests/conftest.py` inventa un catálogo
+pequeño y lo pasa por `export.build()`, el mismo camino que siguen los datos reales. Así
+se prueban las páginas y, además, que **ningún título ni id llegue a la instantánea**.
+
+CI (`.github/workflows/ci.yml`) corre ruff, mypy, bandit y pytest, y construye la imagen
+de Docker. Dependabot propone actualizaciones mensuales de uv, GitHub Actions, pre-commit y
+las imágenes base, con una semana de espera.
+
+## Licencia y fuente
+
+El código se distribuye bajo la [Licencia Apache 2.0](LICENSE); ver también
+[NOTICE](NOTICE).
+
+Los datos **no** forman parte del repositorio. Se calculan a partir del sitio del Centro de
+Investigación en Computación del Instituto Politécnico Nacional,
+[www.cic.ipn.mx](https://www.cic.ipn.mx), cuyo contenido puede reproducirse con fines no
+lucrativos, sin mutilarlo y citando la fuente completa y su dirección electrónica. El
+tablero cita esa fuente en cada página. Es un proyecto independiente y sin fines de lucro,
+sin relación oficial con el IPN ni el CIC.

@@ -13,6 +13,8 @@ from common import (
     explain,
     footer,
     load,
+    number,
+    ratio,
     show,
 )
 
@@ -29,7 +31,7 @@ st.markdown(
 # --- Over time --------------------------------------------------------------
 
 st.subheader("Productos por año")
-first_year = int(outputs["year"].min())
+first_year = int(number(outputs["year"].min()))
 left, middle, right = st.columns([2, 2, 1])
 years = left.slider(
     "Años", first_year, CURRENT_YEAR, (max(first_year, CURRENT_YEAR - 20), CURRENT_YEAR)
@@ -90,7 +92,7 @@ fig = px.bar(
     orientation="h",
     animation_frame="year",
     color="lab",
-    range_x=[0, grid["total"].max() * 1.05],
+    range_x=[0, number(grid["total"].max()) * 1.05],
     category_orders={"lab": order},
     labels={**LABELS, "total": "Productos acumulados"},
 )
@@ -102,7 +104,7 @@ show(fig)
 
 st.subheader("Proyectos de investigación")
 by_scope, by_team = load("projects_by_scope"), load("projects_by_team")
-first, last = int(by_scope["year"].min()), int(by_scope["year"].max())
+first, last = int(number(by_scope["year"].min())), int(number(by_scope["year"].max()))
 left, middle, right = st.columns([2, 2, 1])
 project_lab = left.selectbox("Laboratorio", [ALL_LABS, *lab_names], key="project_lab")
 project_years = middle.slider("Años", first, last, (first, last), key="project_years")
@@ -121,11 +123,11 @@ scoped, team = scope(by_scope), scope(by_team)
 total = scoped["projects"].sum()
 several = scoped.filter(pl.col("scope") == "Varios laboratorios")["projects"].sum()
 staffed = team.filter(pl.col("members") > 0)
-average_team = (staffed["members"] * staffed["projects"]).sum() / max(staffed["projects"].sum(), 1)
+average_team = ratio((staffed["members"] * staffed["projects"]).sum(), staffed["projects"].sum())
 
 cols = st.columns(3)
 cols[0].metric("Proyectos", f"{total:,}", border=True)
-cols[1].metric("Con varios laboratorios", f"{several / max(total, 1):.0%}", border=True)
+cols[1].metric("Con varios laboratorios", f"{ratio(several, total):.0%}", border=True)
 cols[2].metric("Equipo promedio", f"{average_team:.1f} personas", border=True)
 
 left, right = st.columns([2, 1])

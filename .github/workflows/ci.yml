@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  # Las ramas se revisan en su pull request; main otra vez después de cada merge.
+  push:
+    branches: [main]
+  pull_request:
+
+# Un push más nuevo a la misma ref cancela la ejecución en curso.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Mínimo privilegio: estos jobs solo leen el repositorio.
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # Fijada a un commit y no a una etiqueta: una etiqueta se puede mover.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Check the lockfile is current
+        run: uv lock --check
+
+      # El grupo export trae psycopg: las pruebas usan las funciones de export.py.
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Ruff lint
+        run: uv run --no-sync ruff check .
+
+      - name: Ruff format check
+        run: uv run --no-sync ruff format --check .
+
+      - name: Mypy
+        run: uv run --no-sync mypy .
+
+      - name: Bandit
+        run: uv run --no-sync bandit -r . -x ./.venv,./tests -c pyproject.toml
+
+      # Sin base de datos ni data/: las pruebas inventan un catálogo y lo pasan
+      # por export.build(), el mismo camino que siguen los datos reales.
+      - name: Tests
+        run: uv run --no-sync pytest
+
+  # La imagen debe construirse sola, sin los paquetes de la máquina.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build -t cic-dashboard:ci .

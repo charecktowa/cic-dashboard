@@ -35,7 +35,7 @@ metric = st.segmented_control(
     LAB_METRICS,
     default="theses",
     required=True,
-    format_func=LABELS.get,
+    format_func=lambda metric: LABELS[metric],
 )
 ranked = lab_stats.sort(metric, descending=True, nulls_last=True)
 fig = px.bar(
