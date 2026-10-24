@@ -565,3 +565,27 @@ def test_load_rereads_a_table_when_its_file_changes(
     stat = table.stat()
     os.utime(table, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
     assert common.load("prueba")["v"].to_list() == [2]
+
+
+@pytest.mark.usefixtures("tables")
+@pytest.mark.parametrize("where", ["laboratorios", "perfil"])
+def test_distinctive_terms_label_their_lift_on_a_fixed_scale(where: str) -> None:
+    import math
+
+    import common
+
+    # En el catálogo falso, solo una persona externa usa términos más que el promedio.
+    app = render_profile_app("Externa 1") if where == "perfil" else open_page(where)
+    bars = [
+        (spec, trace)
+        for spec in chart_specs(app)
+        for trace in spec["data"]
+        if trace.get("texttemplate") == "×%{text:.1f}"
+    ]
+    assert len(bars) == 1, where
+    spec, trace = bars[0]
+    # Cada barra dice su lift; el color usa su logaritmo en un rango igual para todos.
+    assert trace["text"]
+    axis = spec["layout"]["coloraxis"]
+    assert (axis["cmin"], axis["cmax"]) == (0, math.log10(common.LIFT_MAX))
+    assert axis["showscale"] is False

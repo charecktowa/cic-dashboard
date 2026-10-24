@@ -24,6 +24,11 @@ KIND_COLORS = {"Artículo": BLUE, "Congreso": CORAL}
 # Escalas sin extremos casi blancos ni casi negros, que desaparecerían en un modo u otro.
 TEAL_SCALE = ["#7ccfc0", "#1f8a7e"]
 ORANGE_SCALE = ["#f6b17a", "#c2410c"]
+# "Veces más que el promedio" va de ×2 a ×30 y más, con la mitad de los términos bajo ×10:
+# el color sigue su logaritmo, de ×1 a ×LIFT_MAX, para que ×2, ×5 y ×20 se distingan. El
+# rango es fijo para que un mismo valor tenga el mismo tono en cualquier laboratorio.
+LIFT_SCALE = ["#9fd8cd", "#2a9d8f", "#17675e"]
+LIFT_MAX = 30
 # Un color fijo por laboratorio del CIC. Tonos intermedios y separados entre sí (ΔE ≥ 21)
 # para que se distingan sobre el fondo claro y el oscuro y entre pantallas sin calibración.
 # Van por nombre y no por posición: si el catálogo agrega o renombra un laboratorio, los
@@ -244,6 +249,29 @@ def show_venues(rows: pl.DataFrame, n: int) -> int:
     )
     show(fig)
     return top.height
+
+
+def show_terms(terms: pl.DataFrame, x: str, height: int) -> None:
+    """Términos distintivos como barras de `x`, de color más intenso cuanto mayor su lift.
+
+    `terms` trae term, everywhere, lift y score, como los de signature o distinctive().
+    Cada barra lleva su "×N" escrito: el color ayuda a comparar, la etiqueta da el valor.
+    """
+    fig = px.bar(
+        terms.with_columns(intensity=pl.col("lift").clip(1, LIFT_MAX).log10()),
+        x=x,
+        y="term",
+        orientation="h",
+        color="intensity",
+        color_continuous_scale=LIFT_SCALE,
+        range_color=(0, math.log10(LIFT_MAX)),
+        text="lift",
+        hover_data={"everywhere": True, "lift": ":.1f", "intensity": False, "score": False},
+        labels=LABELS,
+    )
+    fig.update_traces(texttemplate="×%{text:.1f}", textposition="outside", cliponaxis=False)
+    fig.update_layout(height=height, coloraxis_showscale=False)
+    show(fig)
 
 
 def year_axis(fig, years: list[int]) -> None:
