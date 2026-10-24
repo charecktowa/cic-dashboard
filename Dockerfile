@@ -11,8 +11,9 @@ RUN useradd --create-home --uid 1000 app
 WORKDIR /app
 
 # Solo las dependencias de la app: el grupo export (psycopg) se queda fuera.
+# --no-build: solo wheels, ningún sdist corre su script de build en la imagen.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv sync --frozen --no-dev --no-install-project --no-build
 
 COPY .streamlit ./.streamlit
 COPY app.py advisor.py common.py text.py ./
