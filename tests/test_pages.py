@@ -497,3 +497,38 @@ def test_profile_lists_theses_by_role() -> None:
     markdown = " ".join(m.value for m in app.markdown)
     for title in directed["title"]:
         assert f"**{title.translate(MARKDOWN_SPECIAL)}**" in markdown
+
+
+@pytest.mark.usefixtures("tables")
+def test_lab_venues_stack_both_kinds() -> None:
+    import common
+
+    app = open_page("laboratorios")
+    lab = app.selectbox[0].value
+    venues = common.load("venues").filter(pl.col("lab") == lab)
+    (chart,) = [
+        spec
+        for spec in chart_specs(app)
+        if spec["data"]
+        and all(
+            trace["type"] == "bar" and set(trace["y"]) <= set(venues["venue"])
+            for trace in spec["data"]
+        )
+    ]
+    # Apiladas: con barras lado a lado, una revista con los dos tipos se vería partida.
+    assert chart["layout"]["barmode"] in {"stack", "relative"}
+    drawn = {
+        (venue, trace["name"]): value
+        for trace in chart["data"]
+        for venue, value in zip(trace["y"], numbers(trace["x"]), strict=True)
+    }
+    expected = {
+        (venue, kind): outputs
+        for venue, kind, outputs in venues.select("venue", "kind", "outputs").iter_rows()
+    }
+    assert {kind for _, kind in expected} == set(common.KIND_COLORS), (
+        "el catálogo falso debe tener artículos y congresos"
+    )
+    # Pocas revistas en el catálogo falso: caben todas, así que se compara revista por
+    # revista y tipo por tipo.
+    assert drawn == expected

@@ -24,6 +24,7 @@ from common import (
     load,
     load_optional,
     show,
+    show_venues,
     sparkline_help,
     year_axis,
     year_range,
@@ -310,38 +311,12 @@ def render_catalog_venues(person: str) -> None:
     if venues is None:
         st.caption("Esta instantánea de datos todavía no incluye las revistas de cada persona.")
         return
-    mine = venues.filter(pl.col("person") == person)
-    top = (
-        mine.group_by("venue")
-        .agg(pl.sum("outputs"))
-        .sort("outputs", "venue", descending=[True, False])
-        .head(VENUES_SHOWN)
-        .select("venue")
-    )
-    if top.is_empty():
+    shown = show_venues(venues.filter(pl.col("person") == person), VENUES_SHOWN)
+    if not shown:
         st.caption("Sin artículos ni congresos con revista registrada en el catálogo del CIC.")
         return
-    # Una barra por revista, apilada por tipo: una misma serie, como Lecture Notes in
-    # Computer Science, publica tanto artículos como trabajos de congreso.
-    fig = px.bar(
-        mine.join(top, on="venue"),
-        x="outputs",
-        y="venue",
-        color="kind",
-        orientation="h",
-        color_discrete_map=KIND_COLORS,
-        category_orders={"kind": list(KIND_COLORS)},
-        hover_data={"first": True, "last": True},
-        labels=LABELS,
-    )
-    fig.update_yaxes(categoryorder="total ascending")
-    fig.update_layout(
-        height=24 * top.height + 120,
-        legend={"orientation": "h", "y": 1.02, "yanchor": "bottom"},
-    )
-    show(fig)
     st.caption(
-        f"Sus {top.height} revistas y congresos con más productos en el catálogo del CIC. "
+        f"Sus {shown} revistas y congresos con más productos en el catálogo del CIC. "
         "Pasa el cursor sobre una barra para ver su primer y último año."
     )
 
