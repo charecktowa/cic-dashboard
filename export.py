@@ -390,21 +390,45 @@ def project_stats(d: dict[str, pl.DataFrame]) -> tuple[pl.DataFrame, pl.DataFram
     return by_scope, by_team
 
 
-def venues(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
-    """Productos por revista o congreso y tipo, en total (lab nulo) y por laboratorio."""
-    scoped = (
-        d["outputs"].drop_nulls("venue").with_columns(venue_key=words_expr("venue").list.join(" "))
-    )
+def keyed_venues(outputs: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Productos con revista o congreso, y un nombre por cada forma de escribirlo.
+
+    Las variantes de escritura de una misma revista (con o sin acentos, mayúsculas)
+    comparten `venue_key` y se muestran con su nombre más frecuente.
+    """
+    scoped = outputs.drop_nulls("venue").with_columns(venue_key=words_expr("venue").list.join(" "))
     names = scoped.group_by("venue_key").agg(venue=pl.col("venue").mode().first())
-    overall = scoped.with_columns(lab=pl.lit(None, dtype=pl.String))
-    per_lab = scoped.join(d["output_labs"].select("product_id", "lab"), on="product_id")
+    return scoped, names
+
+
+def count_venues(scoped: pl.DataFrame, names: pl.DataFrame, by: str) -> pl.DataFrame:
+    """Productos por revista o congreso, tipo y `by`, con su primer y último año."""
     return (
-        pl.concat([overall, per_lab])
-        .group_by("venue_key", "kind", "lab")
+        scoped.group_by("venue_key", "kind", by)
         .agg(outputs=pl.col("product_id").n_unique(), first=pl.min("year"), last=pl.max("year"))
         .join(names, on="venue_key")
         .drop("venue_key")
     )
+
+
+def venues(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    """Productos por revista o congreso y tipo, en total (lab nulo) y por laboratorio."""
+    scoped, names = keyed_venues(d["outputs"])
+    overall = scoped.with_columns(lab=pl.lit(None, dtype=pl.String))
+    per_lab = scoped.join(d["output_labs"].select("product_id", "lab"), on="product_id")
+    return count_venues(pl.concat([overall, per_lab]), names, "lab")
+
+
+def person_venues(d: dict[str, pl.DataFrame], kept: pl.DataFrame) -> pl.DataFrame:
+    """Productos de cada persona del tablero por revista o congreso y tipo."""
+    scoped, names = keyed_venues(d["outputs"])
+    authors = (
+        d["output_authors"]
+        .join(d["people"].select("person_id", "person"), on="person_id")
+        .join(kept, on="person")
+        .select("product_id", "person")
+    )
+    return count_venues(scoped.join(authors, on="product_id"), names, "person")
 
 
 def documents(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
@@ -600,6 +624,7 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
         "projects_by_scope": by_scope,
         "projects_by_team": by_team,
         "venues": venues(d),
+        "person_venues": person_venues(d, profiles["people"].select("person")),
         "output_titles": output_titles(d),
         **term_tables(
             docs["docs"],

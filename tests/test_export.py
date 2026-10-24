@@ -166,3 +166,12 @@ def test_failed_write_keeps_the_previous_snapshot(
     assert set(files) == set(before)
     assert all(frame["v"].to_list() == [1] for frame in files.values())
     assert not [p for p in tmp_path.iterdir() if p.name.startswith(".staging-")]
+
+
+def test_person_venues_add_up_to_each_profile(tables: dict[str, pl.DataFrame]) -> None:
+    by_person = tables["person_venues"].group_by("person").agg(pl.sum("outputs"))
+    # En el catálogo falso todos los productos tienen revista o congreso.
+    expected = tables["people"].filter(pl.col("outputs") > 0).select("person", "outputs")
+    assert_frame_equal(by_person, expected, check_row_order=False, check_dtypes=False)
+    # Una revista se llama igual en el perfil de una persona que en el de su laboratorio.
+    assert set(tables["person_venues"]["venue"]) <= set(tables["venues"]["venue"])

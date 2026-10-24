@@ -167,6 +167,17 @@ def test_year_axis_marks_every_year() -> None:
     assert empty.layout.xaxis.tickmode is None
 
 
+def numbers(values: list | dict) -> list[float]:
+    """Los valores de un eje: Plotly guarda los numéricos como arreglo binario en base64."""
+    if isinstance(values, list):
+        return values
+    import base64
+
+    import numpy as np
+
+    return np.frombuffer(base64.b64decode(values["bdata"]), dtype=values["dtype"]).tolist()
+
+
 def chart_specs(app: AppTest) -> list[dict]:
     return [json.loads(chart.proto.spec) for chart in app.get("plotly_chart")]
 
@@ -354,3 +365,40 @@ def test_finder_dialog_links_to_the_profile_page() -> None:
     opener = next(b for b in app.button if str(b.key).startswith("open-"))
     opener.click().run()
     assert profile_links(app) == [str(opener.key).removeprefix("open-")]
+
+
+@pytest.mark.usefixtures("tables")
+def test_profile_lists_where_the_person_publishes() -> None:
+    import common
+
+    outputs = common.load("people").filter(pl.col("person") == "Persona 1")["outputs"][0]
+    venues = set(common.load("venues")["venue"])
+    bars = [
+        trace
+        for spec in chart_specs(render_profile_app("Persona 1"))
+        for trace in spec["data"]
+        if trace["type"] == "bar" and set(trace["y"]) <= venues
+    ]
+    assert bars, "el perfil debe dibujar dónde publica"
+    # Pocas revistas en el catálogo falso: caben todas, así que suman todos sus productos.
+    assert sum(sum(numbers(trace["x"])) for trace in bars) == outputs
+    # Una revista con artículos y congresos muestra los dos tipos, no solo el mayoritario.
+    by_kind = (
+        common.load("person_venues")
+        .filter(pl.col("person") == "Persona 1")
+        .group_by("kind")
+        .agg(pl.sum("outputs"))
+    )
+    assert {trace["name"]: sum(numbers(trace["x"])) for trace in bars} == dict(by_kind.iter_rows())
+
+
+def test_long_axis_labels_fit_in_two_lines() -> None:
+    import common
+
+    short = "Computación y Sistemas"
+    assert common.wrap(short) == short
+    long = "4th Workshop on Speech, Vision, and Language Technologies for Dravidian Languages"
+    lines = common.wrap(long).split("<br>")
+    assert len(lines) == 2
+    assert all(len(line) <= common.WRAP_AT for line in lines)
+    assert lines[-1].endswith("…")
