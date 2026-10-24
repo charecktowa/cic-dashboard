@@ -259,9 +259,21 @@ def test_cic_venues_count_a_shared_work_once(
         {"person": "Externa", "openalex_ids": "A5"},
         {"person": "Se fue", "openalex_ids": "A6"},
     ]
-    api.replies = [{"group_by": []}] * 3
 
-    openalex.cic_venue_counts(mapping)
+    def ieee(works: int) -> dict:
+        return {"group_by": [{"key": "S1", "key_display_name": "IEEE Access", "count": works}]}
+
+    # OpenAlex ya cuenta una vez el trabajo de Ana y Luis: el CIC tiene 5, no 3 + 4.
+    api.replies = [ieee(5), ieee(3), ieee(4)]
+
+    rows = openalex.cic_venue_counts(mapping)
+
+    # Cada grupo guarda la cuenta que OpenAlex dio para él, sin sumar las de sus personas.
+    assert rows == [
+        {"lab": None, "venue": "IEEE Access", "works": 5},
+        {"lab": "IA", "venue": "IEEE Access", "works": 3},
+        {"lab": "Redes", "venue": "IEEE Access", "works": 4},
+    ]
 
     # Una consulta por grupo, cada una con los ids de todo el grupo y sin repetir: OpenAlex
     # cuenta una vez el trabajo que firman varios de ellos.
