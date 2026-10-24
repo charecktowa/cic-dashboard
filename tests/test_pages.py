@@ -668,3 +668,13 @@ def test_theses_by_language_add_up_to_every_thesis() -> None:
         bars = dict(zip(trace["y"], numbers(trace["x"]), strict=True))
         total += bars["Todas"]
     assert total == theses["titles"].sum()
+
+
+@pytest.mark.usefixtures("tables")
+def test_cic_venues_explain_how_many_products_they_cover() -> None:
+    import common
+
+    with_venue = common.load("venues").filter(pl.col("lab").is_null())["outputs"].sum()
+    total = dict(common.load("totals").iter_rows())["Artículos y congresos"]
+    text = " ".join(m.value for m in open_page("produccion").markdown)
+    assert f"{with_venue:,} de {total:,} productos" in text

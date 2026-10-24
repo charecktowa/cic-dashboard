@@ -187,12 +187,23 @@ if venue_kind != "Todos":
     scoped = scoped.filter(pl.col("kind") == venue_kind)
 if not show_venues(scoped, venue_top):
     st.info("No hay productos con revista o congreso registrado para esta selección.")
+with_venue = venues.filter(pl.col("lab").is_null())["outputs"].sum()
+all_outputs = dict(load("totals").iter_rows())["Artículos y congresos"]
 explain(
-    """
-Las variantes de escritura de una misma revista o congreso (con o sin acentos, mayúsculas,
-"&" o "and") se cuentan como una sola. Con el tipo en **Todos**, cada barra se divide en
-artículos y congresos. Si estás por publicar, esta lista es una buena pista de dónde suelen
-enviar sus trabajos en tu laboratorio.
+    f"""
+- **Qué cuenta:** los artículos en revista y los trabajos en congreso del catálogo del CIC
+  que tienen anotada su revista o congreso: {with_venue:,} de {all_outputs:,} productos.
+- **Cada producto cuenta una vez** en el total del CIC, aunque lo firmen varias personas del
+  CIC. En un laboratorio cuenta si el catálogo lo asocia con ese laboratorio, así que un
+  producto de dos laboratorios aparece en ambos y la suma de los laboratorios pasa del total.
+- **Una revista con varias formas de escribirse** (con o sin acentos, mayúsculas, "&" o
+  "and") se cuenta como una sola y se muestra con su nombre más frecuente.
+- **Todos los años juntos.** Pasa el cursor sobre una barra para ver el primer y el último
+  año con un producto ahí. Con el tipo en **Todos**, cada barra se divide en artículos y
+  congresos.
+
+Si estás por publicar, esta lista es una buena pista de dónde suelen enviar sus trabajos en
+tu laboratorio.
 """
 )
 footer()
