@@ -354,3 +354,87 @@ def test_export_without_password_says_where_to_put_it(monkeypatch: pytest.Monkey
     assert "a .env" in message
     assert "--env-file .env" in message
     assert "tu base otra_base" in message
+
+
+@pytest.mark.parametrize(
+    ("title", "original"),
+    [
+        (
+            "Geocodificación de microblogs basada en ontologías "
+            "(Geocoding of microblogs based on ontologies)",
+            "Geocodificación de microblogs basada en ontologías",
+        ),
+        (
+            "Metodología sistémica para la enseñanza [Systemic methodology for teaching]",
+            "Metodología sistémica para la enseñanza",
+        ),
+        # Un paréntesis corto o a media frase es parte del título.
+        (
+            "Implementación de un controlador difuso (fuzzy controller) en un FPGA",
+            "Implementación de un controlador difuso (fuzzy controller) en un FPGA",
+        ),
+        (
+            "One More Geometric Interpretation of Pearson's Correlation (Aceptado)",
+            "One More Geometric Interpretation of Pearson's Correlation (Aceptado)",
+        ),
+        # Un título que es todo paréntesis no se queda vacío.
+        ("(Estudio de caso sobre redes neuronales)", "(Estudio de caso sobre redes neuronales)"),
+    ],
+)
+def test_original_title_drops_a_trailing_translation(title: str, original: str) -> None:
+    assert export.original_title(title) == original
+
+
+def test_title_languages_read_grammar_not_borrowed_terms() -> None:
+    titles = {
+        # Términos técnicos en inglés dentro de un título en español.
+        "Aplicaciones de seguridad con Man-in-the-Middle para casos de malware": "es",
+        "Deep learning para detección de malware en Android": "es",
+        # Títulos cortos, sin palabras como "de" o "the", que la heurística de antes empataba.
+        "Automatic Sarcasm Detection": "en",
+        "Parametric Type-2 Fuzzy Logic Systems": "en",
+        "Apoyo encuentro Red Cómputo": "es",
+        # Con su traducción al final, cuenta la parte original.
+        "Dynamic Stability in an Endoreversible Chemical Reactor "
+        "(Estabilidad Dinámica de un Reactor Químico Endorreversible)": "en",
+        # Sin letras no hay con qué decidir.
+        "2023": None,
+    }
+    assert export.title_languages(list(titles)) == list(titles.values())
+
+
+def test_language_counts_every_title_once() -> None:
+    docs = pl.DataFrame(
+        {
+            "doc_id": ["a", "b", "c", "d", "e"],
+            "source": ["Artículo", "Artículo", "Tesis", "Tesis", "Tesis"],
+            "title": [
+                "Automatic Sarcasm Detection",
+                "Detección automática de sarcasmo",
+                "Sistema de recomendación geoespacial",
+                "2023",
+                None,
+            ],
+            "year": [2020, 2020, None, None, None],
+            "level": [None, None, "Maestría", "Doctorado", "Doctorado"],
+        },
+        schema_overrides={"year": pl.Int32},
+    )
+    language = export.title_language(docs).sort("source")
+    # Los títulos sin idioma (sin letras o vacíos) no se cuentan.
+    assert language.select("source", "level", "english", "titles").rows() == [
+        ("Artículo", None, 1, 2),
+        ("Tesis", "Maestría", 0, 1),
+    ]
+
+
+def test_language_splits_theses_by_level(
+    tables: dict[str, pl.DataFrame], catalog: dict[str, pl.DataFrame]
+) -> None:
+    language = tables["language"]
+    # Solo las tesis tienen nivel, y cada nivel suma sus tesis del catálogo.
+    assert language.filter(pl.col("level").is_not_null())["source"].unique().to_list() == ["Tesis"]
+    theses = language.filter(pl.col("source") == "Tesis")
+    counted = dict(theses.group_by("level").agg(pl.sum("titles")).iter_rows())
+    expected = dict(catalog["theses"].group_by("level").agg(pl.len()).iter_rows())
+    assert counted == expected

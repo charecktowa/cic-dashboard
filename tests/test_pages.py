@@ -647,3 +647,24 @@ def test_about_links_to_the_repository_and_its_issues() -> None:
     text = " ".join(m.value for m in app.markdown)
     assert f"]({common.REPO_URL})" in text
     assert f"]({common.REPO_URL}/issues)" in text
+
+
+@pytest.mark.usefixtures("tables")
+def test_theses_by_language_add_up_to_every_thesis() -> None:
+    import common
+
+    theses = common.load("language").filter(pl.col("source") == "Tesis")
+    traces = [
+        trace
+        for spec in chart_specs(open_page("temas"))
+        for trace in spec["data"]
+        if trace.get("name") in common.LANGUAGE_COLORS
+    ]
+    assert sorted(trace["name"] for trace in traces) == ["Español", "Inglés"]
+    total = 0.0
+    for trace in traces:
+        assert trace["marker"]["color"] == common.LANGUAGE_COLORS[trace["name"]]
+        # La barra "Todas" junta todas las tesis con idioma, con o sin nivel.
+        bars = dict(zip(trace["y"], numbers(trace["x"]), strict=True))
+        total += bars["Todas"]
+    assert total == theses["titles"].sum()

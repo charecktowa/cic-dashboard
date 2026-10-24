@@ -7,6 +7,7 @@ from common import (
     CORAL,
     CURRENT_YEAR,
     LABELS,
+    LANGUAGE_COLORS,
     TEAL,
     explain,
     footer,
@@ -18,6 +19,7 @@ from common import (
 )
 
 term_year, term_lab = load("term_year"), load("term_lab")
+ALL_THESES = "Todas"
 SUGGESTIONS = {
     "IA clásica vs. moderna": "redes neuronales, deep learning, fuzzy, algoritmos geneticos",
     "Lenguaje": "nlp, natural language, lenguaje natural, sentiment",
@@ -170,32 +172,81 @@ st.subheader("¿Español o inglés?")
 language = load("language")
 theses_lang = language.filter(pl.col("source") == "Tesis")
 thesis_share = ratio(theses_lang["english"].sum(), theses_lang["titles"].sum())
+# Cada nivel y, arriba, todas las tesis juntas (también las que no registran nivel).
+by_level = (
+    pl.concat([theses_lang.drop_nulls("level"), theses_lang.with_columns(level=pl.lit(ALL_THESES))])
+    .group_by("level")
+    .agg(pl.sum("english", "titles"))
+    .with_columns(spanish=pl.col("titles") - pl.col("english"))
+    .unpivot(on=["spanish", "english"], index=["level", "titles"], variable_name="language")
+    .with_columns(
+        pl.col("language").replace_strict({"spanish": "Español", "english": "Inglés"}),
+        share=pl.col("value") / pl.col("titles"),
+    )
+)
+left, right = st.columns([1, 4])
+left.metric("Tesis en inglés", f"{thesis_share:.0%}", border=True)
+with right:
+    # Los títulos van fuera de la gráfica: Plotly no los parte en líneas y en un celular
+    # se cortarían o se encimarían con la leyenda.
+    st.markdown("**Todas las tesis, por idioma del título**")
+    fig = px.bar(
+        by_level,
+        x="value",
+        y="level",
+        color="language",
+        orientation="h",
+        text="value",
+        color_discrete_map=LANGUAGE_COLORS,
+        category_orders={
+            "level": [ALL_THESES, *sorted(theses_lang["level"].drop_nulls().unique())],
+            "language": list(LANGUAGE_COLORS),
+        },
+        hover_data={"share": ":.0%", "titles": False},
+        labels={
+            **LABELS,
+            "value": "Tesis",
+            "language": "Idioma del título",
+            "share": "Proporción",
+        },
+    )
+    fig.update_layout(height=240, legend={"orientation": "h", "y": 1.02, "yanchor": "bottom"})
+    fig.update_yaxes(title=None)
+    # Horizontales y dentro de su segmento: en uno angosto Plotly las giraría o las sacaría.
+    fig.update_traces(textposition="inside", textangle=0, insidetextanchor="middle")
+    show(fig)
+
 by_year = (
     language.drop_nulls("year")
     .filter(pl.col("year").is_between(CURRENT_YEAR - 25, CURRENT_YEAR) & (pl.col("titles") >= 5))
     .with_columns(share=pl.col("english") / pl.col("titles"))
     .sort("year")
 )
-left, right = st.columns([1, 5])
-left.metric("Tesis con título en inglés", f"{thesis_share:.0%}", border=True)
-with right:
-    fig = px.line(
-        by_year,
-        x="year",
-        y="share",
-        color="source",
-        markers=True,
-        line_shape="spline",
-        hover_data={"titles": True},
-        labels={**LABELS, "share": "Títulos en inglés"},
-    )
-    fig.update_yaxes(tickformat=".0%")
-    show(fig)
+st.markdown("**Títulos en inglés por año, según su fuente**")
+fig = px.line(
+    by_year,
+    x="year",
+    y="share",
+    color="source",
+    markers=True,
+    line_shape="spline",
+    hover_data={"titles": True},
+    labels={**LABELS, "share": "Títulos en inglés"},
+)
+fig.update_yaxes(tickformat=".0%")
+show(fig)
 explain(
     """
-El idioma de un título se adivina por sus palabras cortas más comunes (*de*, *la*, *para*
-contra *the*, *of*, *for*). Los títulos donde empatan no se cuentan. Las tesis no tienen año,
-por eso aparecen como una sola proporción.
+El idioma de cada título lo decide [Lingua](https://github.com/pemistahl/lingua-py), un
+detector de idioma estadístico que funciona bien con textos cortos, eligiendo solo entre
+español e inglés. Mira el título completo, así que uno en español con términos técnicos en
+inglés, como *“Deep learning para detección de malware”*, cuenta como español. Si un título
+trae su traducción al final,
+entre paréntesis o corchetes, cuenta la parte original. Los títulos sin letras, como un
+año, no se cuentan.
+
+El catálogo registra el título de cada tesis, no el idioma en que está escrita; casi
+siempre coinciden. Las tesis no tienen año, por eso no aparecen en la gráfica por año.
 """
 )
 footer()

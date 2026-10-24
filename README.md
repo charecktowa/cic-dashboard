@@ -47,7 +47,7 @@ app.py           navegación
 tests/           pruebas con un catálogo inventado (sin base de datos)
 views/           una página por archivo
 .streamlit/      configuración: sin menú de desarrollador ni trazas de error para visitantes
-Dockerfile       imagen solo con la app (sin export.py ni psycopg)
+Dockerfile       imagen solo con la app (sin export.py, psycopg ni Lingua)
 compose.yaml     servicio para el VPS, detrás de Nginx Proxy Manager
 ```
 
@@ -62,7 +62,9 @@ el entorno local. Copia `.env.example` a `.env` (está en `.gitignore`) y pon ah
 uv run --env-file .env --group export python export.py
 ```
 
-El grupo `export` añade `psycopg`; la app no lo necesita y la imagen no lo instala.
+El grupo `export` añade `psycopg` y [Lingua](https://github.com/pemistahl/lingua-py), que
+decide si cada título está en español o en inglés. La app no los necesita y la imagen no
+los instala.
 `data/` está en `.gitignore`: se copia al servidor aparte.
 
 ## 1b. Métricas y publicaciones de OpenAlex (opcional)
