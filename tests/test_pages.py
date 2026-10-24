@@ -272,6 +272,8 @@ def test_advisor_search_starts_empty() -> None:
     assert not app.exception, app.exception
     assert app.selectbox(key="persona").value is None
     assert not profile_headers(app)
+    # Sin nadie elegido, ofrece las páginas que ayudan a encontrar a alguien.
+    assert [link.proto.page for link in app.get("page_link")] == ["asesores", "encuentra"]
 
 
 @pytest.mark.usefixtures("tables")

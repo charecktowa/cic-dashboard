@@ -24,6 +24,9 @@ if person is None:
         "y **Encuentra tu lab** sugiere nombres a partir de tu idea de tesis.",
         icon=":material/person_search:",
     )
+    with st.container(horizontal=True, gap="small"):
+        st.page_link("views/asesores.py", label="Ir a Asesores", icon=":material/school:")
+        st.page_link("views/encuentra.py", label="Ir a Encuentra tu lab", icon=":material/explore:")
 else:
     st.markdown(f"### {person}")
     render_profile(person)
