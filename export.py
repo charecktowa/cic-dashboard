@@ -12,7 +12,13 @@ Se ejecuta donde la base de datos es accesible:
 """
 
 import datetime
+import fcntl
 import os
+import shutil
+import tempfile
+from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +62,31 @@ def query(sql: str) -> pl.DataFrame:
         return pl.DataFrame(cursor.fetchall(), schema=columns, orient="row")
 
 
+def label_homonyms(people: pl.DataFrame) -> pl.DataFrame:
+    """Un nombre distinto por persona: los homónimos llevan un sufijo " (n)".
+
+    El nombre es la llave de cada persona en la instantánea, que no publica ids. El
+    sufijo sigue el orden de `person_id`, así que la misma persona conserva su número
+    entre exportaciones, y salta los nombres que ya existen: otra persona podría
+    llamarse literalmente "Ana López (2)".
+    """
+    people = people.sort("person_id")
+    names = people["person"].to_list()
+    counts = Counter(names)
+    taken = {name for name, n in counts.items() if n == 1}
+    labels = []
+    for name in names:
+        if name is None or counts[name] == 1:
+            labels.append(name)
+            continue
+        n = 1
+        while f"{name} ({n})" in taken:
+            n += 1
+        taken.add(f"{name} ({n})")
+        labels.append(f"{name} ({n})")
+    return people.with_columns(person=pl.Series(labels, dtype=pl.String))
+
+
 def load() -> dict[str, pl.DataFrame]:
     """Tablas a nivel de registro. Se quedan en memoria y nunca se escriben."""
     # Algunos nombres repiten el prefijo ("Laboratorio Laboratorio de ...").
@@ -74,17 +105,7 @@ def load() -> dict[str, pl.DataFrame]:
         GROUP BY p.id, p.display_name
         """
     ).join(lab_name, on="lab_id", how="left")
-    # Dos personas pueden compartir nombre; un sufijo las mantiene separadas.
-    people = people.with_columns(
-        person=pl.when(pl.col("person").is_duplicated())
-        .then(
-            pl.col("person")
-            + " ("
-            + (pl.int_range(pl.len()).over("person") + 1).cast(pl.String)
-            + ")"
-        )
-        .otherwise(pl.col("person"))
-    )
+    people = label_homonyms(people)
 
     theses = query(
         """
@@ -539,23 +560,30 @@ def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
             & pl.col("title").is_not_null()
             & (pl.col("title").str.len_chars() > 0)
         )
+        # Dos productos con el mismo título, año y tipo siguen siendo dos: el perfil
+        # los cuenta por separado y la lista debe coincidir con ese conteo.
+        .unique(["person_id", "product_id"])
+        .sort(["person", "year", "title"], descending=[False, True, False], nulls_last=True)
         .select("person", "title", "year", "kind")
-        .unique()
-        .sort("person", "year", descending=[False, True], nulls_last=True)
     )
 
 
 def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     """Todas las tablas agregadas a partir de las tablas a nivel de registro."""
     # Un año futuro es un error de captura: no debe mover totales ni tendencias. Sus
-    # laboratorios y autores también se van, o seguirían contando en pares y temas.
-    outputs = d["outputs"].filter(pl.col("year").is_null() | (pl.col("year") <= CURRENT_YEAR))
-    kept = outputs.select("product_id")
+    # laboratorios, autores y equipos también se van, o seguirían contando en pares y temas.
+    known = pl.col("year").is_null() | (pl.col("year") <= CURRENT_YEAR)
+    outputs = d["outputs"].filter(known)
+    projects = d["projects"].filter(known)
+    kept, kept_projects = outputs.select("product_id"), projects.select("project_id")
     d = {
         **d,
         "outputs": outputs,
         "output_labs": d["output_labs"].join(kept, on="product_id", how="semi"),
         "output_authors": d["output_authors"].join(kept, on="product_id", how="semi"),
+        "projects": projects,
+        "project_labs": d["project_labs"].join(kept_projects, on="project_id", how="semi"),
+        "project_members": d["project_members"].join(kept_projects, on="project_id", how="semi"),
     }
     profiles = people_profiles(d)
     docs = documents(d)
@@ -584,22 +612,51 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     return tables
 
 
-def write(tables: dict[str, pl.DataFrame], out: Path) -> None:
-    """Reemplaza la instantánea en `out` por estas tablas."""
+@contextmanager
+def export_lock(out: Path) -> Iterator[None]:
+    """Una sola exportación a la vez sobre `out`, de la lectura a la publicación.
+
+    Si el candado cubriera solo la escritura, una exportación que leyó la base antes
+    podría publicar después y deshacer una más reciente.
+    """
     out.mkdir(exist_ok=True)
-    # Los archivos openalex_* los escribe openalex.py y no dependen de esta exportación.
-    for old in out.glob("*.parquet"):
-        if not old.name.startswith("openalex_"):
-            old.unlink()
-    for name, frame in tables.items():
-        frame.write_parquet(out / f"{name}.parquet")
+    with (out / ".export.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def write(tables: dict[str, pl.DataFrame], out: Path) -> None:
+    """Reemplaza la instantánea en `out` por estas tablas. Se llama dentro de export_lock().
+
+    Todas se escriben primero en una carpeta oculta dentro de `out` (el mismo disco,
+    para que mover un archivo sea un rename atómico) y solo al final reemplazan a las
+    anteriores: una exportación que falla a medias deja intacta la instantánea previa.
+    """
+    out.mkdir(exist_ok=True)
+    # Una exportación que murió de golpe deja su carpeta temporal; con el candado puesto,
+    # ninguna otra la está usando.
+    for leftover in out.glob(".staging-*"):
+        shutil.rmtree(leftover)
+    with tempfile.TemporaryDirectory(prefix=".staging-", dir=out) as staging:
+        staged = [Path(staging) / f"{name}.parquet" for name in tables]
+        for path, frame in zip(staged, tables.values(), strict=True):
+            frame.write_parquet(path)
+        # Los archivos openalex_* los escribe openalex.py y no dependen de esta
+        # exportación. Solo se borra lo que la nueva instantánea ya no trae.
+        fresh = {path.name for path in staged}
+        for old in out.glob("*.parquet"):
+            if not old.name.startswith("openalex_") and old.name not in fresh:
+                old.unlink()
+        for path in staged:
+            path.replace(out / path.name)
 
 
 def main() -> None:
     if not PG["password"]:
         raise SystemExit("Falta POSTGRES_PASSWORD: cópiala de .env.example a .env (ver README).")
-    tables = build(load())
-    write(tables, OUT)
+    with export_lock(OUT):
+        tables = build(load())
+        write(tables, OUT)
     for name, frame in tables.items():
         print(f"{name:>18}: {frame.height:>7,} filas")
     print(f"Instantánea escrita en {OUT} ({datetime.date.today()})")

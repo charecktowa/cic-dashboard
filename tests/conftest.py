@@ -108,12 +108,25 @@ def fake_catalog(seed: int = 7) -> dict[str, pl.DataFrame]:
     externals = [p[0] for p in people if p[3] is None]
     output_authors.append((1, externals[0]))
 
+    # Dos productos con el mismo título, año y tipo (por ejemplo, un artículo y su
+    # reedición) son dos publicaciones, y el perfil debe listar ambas.
+    reprint_id = 242
+    _, same_title, same_kind, same_year, _ = outputs[0]
+    outputs.append((reprint_id, same_title, same_kind, same_year, VENUES[1]))
+    output_labs += [(reprint_id, lab_id, lab) for pid, lab_id, lab in output_labs if pid == 1]
+    output_authors += [(reprint_id, person) for pid, person in output_authors if pid == 1]
+
     # Un año futuro es un error de captura: la instantánea debe descartarlo.
     future_id = 241
     outputs.append((future_id, title(labs[0]), "Artículo", YEAR + 1, VENUES[0]))
     # Compartido por dos laboratorios, para que también se note en lab_pairs.
     output_labs += [(future_id, lab_ids[lab], lab) for lab in labs[:2]]
     output_authors += [(future_id, by_lab[lab][0]) for lab in labs[:2]]
+    # Lo mismo para un proyecto: no debe contar en totales, tendencias ni pares.
+    future_project = 41
+    projects.append((future_project, title(labs[0], "Proyecto de"), YEAR + 1))
+    project_labs += [(future_project, lab_ids[lab], lab) for lab in labs[:2]]
+    project_members += [(future_project, by_lab[lab][0], "Colaborador") for lab in labs[:2]]
 
     def frame(rows: list, columns: list[str]) -> pl.DataFrame:
         return pl.DataFrame(rows, schema=columns, orient="row")

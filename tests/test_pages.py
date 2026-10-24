@@ -1,6 +1,7 @@
 """Cada página corre de principio a fin con la instantánea falsa."""
 
 import datetime
+import json
 from pathlib import Path
 
 import polars as pl
@@ -18,6 +19,7 @@ PAGES = [
     "produccion",
     "acerca",
 ]
+PAGES_WITH_LAB_CHARTS = {"laboratorios", "asesores", "produccion"}
 
 
 def open_page(page: str) -> AppTest:
@@ -160,3 +162,33 @@ def test_year_axis_marks_every_year() -> None:
     empty = go.Figure()
     common.year_axis(empty, [])
     assert empty.layout.xaxis.tickmode is None
+
+
+def chart_specs(app: AppTest) -> list[dict]:
+    return [json.loads(chart.proto.spec) for chart in app.get("plotly_chart")]
+
+
+@pytest.mark.usefixtures("tables")
+def test_ranking_puts_the_leader_on_top() -> None:
+    import common
+
+    leader = common.load("lab_stats").sort("theses", descending=True)["lab"][0]
+    ranking = chart_specs(open_page("laboratorios"))[0]
+    # Plotly dibuja categoryarray de abajo hacia arriba; Plotly Express ya lo invierte
+    # para que la primera categoría de category_orders quede arriba.
+    assert ranking["layout"]["yaxis"]["categoryarray"][-1] == leader
+
+
+@pytest.mark.usefixtures("tables")
+@pytest.mark.parametrize("page", PAGES)
+def test_every_lab_keeps_its_color(page: str) -> None:
+    import common
+
+    colors = common.lab_colors()
+    traces = [trace for spec in chart_specs(open_page(page)) for trace in spec["data"]]
+    by_lab = [trace for trace in traces if trace.get("name") in colors]
+    # Sin esto, una página que dejara de dibujar sus gráficas por laboratorio pasaría.
+    assert bool(by_lab) == (page in PAGES_WITH_LAB_CHARTS), page
+    for trace in by_lab:
+        drawn = trace.get("marker", {}).get("color") or trace.get("line", {}).get("color")
+        assert drawn == colors[trace["name"]], (page, trace["name"])
