@@ -32,8 +32,8 @@ DATA = Path(os.environ.get("CIC_DATA_DIR", ROOT / "data"))
 MAPPING = ROOT / "openalex_authors.csv"
 API = "https://api.openalex.org"
 TOP_WORKS = 25
-# Ningún título de tesis se publica, tampoco las que OpenAlex indexa. La app no incluye
-# este script, así que advisor.HIDDEN_WORK_TYPES repite la lista.
+# Las tesis que indexa OpenAlex no se publican: ahí el autor suele ser el alumno. La app
+# no incluye este script, así que advisor.HIDDEN_WORK_TYPES repite la lista.
 HIDDEN_TYPES = ("dissertation",)
 IPN_NAMES = ("instituto politecnico nacional", "national polytechnic institute")
 FIELDS = ["person", "openalex_ids", "display_name", "works_count", "institution", "status"]

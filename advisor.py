@@ -40,7 +40,8 @@ WORK_TYPES = {
     "review": "Revisión",
     "dataset": "Datos",
 }
-# Las tesis no se muestran, tampoco las de OpenAlex (ver openalex.HIDDEN_TYPES).
+# Las tesis de OpenAlex no se muestran: ahí el autor suele ser el alumno (ver
+# openalex.HIDDEN_TYPES). Las del catálogo del CIC, sin alumno, van en la pestaña Tesis.
 HIDDEN_WORK_TYPES = ["dissertation"]
 # Caracteres que Markdown interpretaría dentro de un título.
 MARKDOWN_SPECIAL = str.maketrans({c: f"\\{c}" for c in "\\`*_{}[]<>()#+-.!|"})

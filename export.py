@@ -2,9 +2,10 @@
 
 Todo lo que escribe este script está agregado: conteos por año, laboratorio,
 rol, revista o término. Las únicas excepciones son los títulos de artículos,
-congresos y proyectos del personal investigador (nunca de tesis). No sale
-ningún id ni nombre de estudiante, así que la carpeta data/ se puede copiar a
-un servidor público.
+congresos y proyectos del personal investigador, y los de tesis con sus
+directores y comité. No sale ningún id ni nombre de estudiante (el catálogo no
+guarda al alumno), así que la carpeta data/ se puede copiar a un servidor
+público.
 
 Se ejecuta donde la base de datos es accesible:
 
@@ -570,10 +571,9 @@ def term_tables(
 def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
     """Títulos de artículos y congresos del personal investigador.
 
-    Nunca se incluyen títulos de tesis: solo publicaciones del personal investigador, que
-    ya son públicas y llevan su nombre en el sitio del CIC (los proyectos van aparte, en
-    project_titles). Quien no tiene laboratorio (un asesor externo) no aparece, aunque
-    firme un producto.
+    Solo publicaciones del personal investigador, que ya son públicas y llevan su nombre en
+    el sitio del CIC; los proyectos y las tesis van aparte (project_titles, thesis_titles).
+    Quien no tiene laboratorio (un asesor externo) no aparece, aunque firme un producto.
     """
     staff = d["people"].drop_nulls("lab").select("person_id", "person")
     return (
@@ -599,8 +599,7 @@ def project_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
     Un proyecto registrado en varios años (el mismo título, sin importar mayúsculas)
     aparece una vez con todos sus años, y con el título y el rol de su registro más
     reciente: alguien puede pasar de colaborador a responsable técnico. Como en
-    output_titles, quien no tiene laboratorio en el CIC no aparece, y nunca se incluyen
-    títulos de tesis.
+    output_titles, quien no tiene laboratorio en el CIC no aparece.
     """
     staff = d["people"].drop_nulls("lab").select("person_id", "person")
     title = pl.col("title").str.strip_chars()
