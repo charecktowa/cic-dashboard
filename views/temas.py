@@ -222,7 +222,7 @@ by_year = (
     .with_columns(share=pl.col("english") / pl.col("titles"))
     .sort("year")
 )
-st.markdown("**Artículos, congresos y proyectos con título en inglés, por año**")
+st.markdown("**Títulos en inglés por año, según su fuente**")
 fig = px.line(
     by_year,
     x="year",
