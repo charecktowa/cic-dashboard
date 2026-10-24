@@ -68,10 +68,13 @@ El grupo `export` añade `psycopg`; la app no lo necesita y la imagen no lo inst
 citados. Los datos de OpenAlex son de dominio público (CC0). Corre en tu máquina, después de
 `export.py`; el VPS nunca llama a OpenAlex.
 
+Si tienes una [llave gratuita de OpenAlex](https://openalex.org/settings/api-key), ponla en
+`OPENALEX_API_KEY` dentro de `.env`: es opcional y multiplica el presupuesto diario. Se manda
+en la cabecera `Authorization`, nunca en la URL.
+
 ```bash
-export OPENALEX_API_KEY=...      # opcional: la llave gratuita multiplica el presupuesto diario
-uv run python openalex.py match  # propone un autor de OpenAlex por persona
-uv run python openalex.py fetch  # trae métricas y trabajos de los autores revisados
+uv run --env-file .env python openalex.py match  # propone un autor de OpenAlex por persona
+uv run --env-file .env python openalex.py fetch  # trae métricas y trabajos de los revisados
 ```
 
 `match` escribe `openalex_authors.csv` con una columna `status`:

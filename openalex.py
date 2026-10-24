@@ -2,11 +2,11 @@
 
 Dos pasos, ambos en tu máquina (el VPS nunca llama a OpenAlex):
 
-    uv run python openalex.py match   # propone un autor de OpenAlex por persona
+    uv run --env-file .env python openalex.py match   # propone un autor por persona
     # revisa openalex_authors.csv a mano: corrige ids, borra los que no son
-    uv run python openalex.py fetch   # trae métricas y trabajos de los ids revisados
+    uv run --env-file .env python openalex.py fetch   # métricas y trabajos de los revisados
 
-Los datos de OpenAlex son CC0 (dominio público). Con OPENALEX_API_KEY en el entorno el
+Los datos de OpenAlex son CC0 (dominio público). Con OPENALEX_API_KEY en .env el
 presupuesto diario es mayor; sin ella también alcanza para unas decenas de personas.
 """
 
@@ -37,11 +37,14 @@ FIELDS = ["person", "openalex_ids", "display_name", "works_count", "institution"
 
 
 def get(path: str, **params: str | int) -> dict[str, Any]:
-    """Una llamada a la API de OpenAlex, con la llave si está en el entorno."""
+    """Una llamada a la API de OpenAlex, con la llave si está en el entorno.
+
+    La llave va en la cabecera y no en la URL: un error o un log muestran la URL.
+    """
     key = os.environ.get("OPENALEX_API_KEY")
-    query = {**params, **({"api_key": key} if key else {})}
-    url = f"{API}{path}?{urllib.parse.urlencode(query)}"
-    request = urllib.request.Request(url, headers={"User-Agent": "cic-dashboard"})
+    headers = {"User-Agent": "cic-dashboard", **({"Authorization": f"Bearer {key}"} if key else {})}
+    url = f"{API}{path}?{urllib.parse.urlencode(params)}"
+    request = urllib.request.Request(url, headers=headers)
     for attempt in range(3):
         try:
             # La URL siempre empieza con la constante API (https), nunca con file:// u otro.
