@@ -292,7 +292,8 @@ def people_profiles(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
         .filter(pl.col("person") != pl.col("other"))
         .group_by("person", "other")
         .agg(theses=pl.len())
-        .sort("theses", descending=True)
+        # El nombre desempata: sin él, el top de cada persona cambiaría entre exportaciones.
+        .sort(["theses", "other"], descending=[True, False])
         .group_by("person", maintain_order=True)
         .head(TOP_COLLABORATORS)
     )
@@ -502,7 +503,7 @@ def term_tables(
             / ((pl.col("everywhere") + 1) / (docs.height + 1))
         )
         .with_columns(score=pl.col("here") * pl.col("lift").log())
-        .sort("score", descending=True)
+        .sort(["score", "term"], descending=[True, False])
         .group_by("lab", maintain_order=True)
         .head(SIGNATURE_TERMS)
         .drop("lab_titles")
@@ -545,10 +546,15 @@ def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
 
 def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     """Todas las tablas agregadas a partir de las tablas a nivel de registro."""
-    # Un año futuro es un error de captura: no debe mover totales ni tendencias.
+    # Un año futuro es un error de captura: no debe mover totales ni tendencias. Sus
+    # laboratorios y autores también se van, o seguirían contando en pares y temas.
+    outputs = d["outputs"].filter(pl.col("year").is_null() | (pl.col("year") <= CURRENT_YEAR))
+    kept = outputs.select("product_id")
     d = {
         **d,
-        "outputs": d["outputs"].filter(pl.col("year").is_null() | (pl.col("year") <= CURRENT_YEAR)),
+        "outputs": outputs,
+        "output_labs": d["output_labs"].join(kept, on="product_id", how="semi"),
+        "output_authors": d["output_authors"].join(kept, on="product_id", how="semi"),
     }
     profiles = people_profiles(d)
     docs = documents(d)

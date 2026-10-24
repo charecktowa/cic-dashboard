@@ -3,6 +3,9 @@
 import datetime
 
 import polars as pl
+from polars.testing import assert_frame_equal
+
+import export
 
 
 def test_every_table_is_built(tables: dict[str, pl.DataFrame]) -> None:
@@ -38,6 +41,28 @@ def test_no_future_years_reach_the_snapshot(tables: dict[str, pl.DataFrame]) -> 
     for name, frame in tables.items():
         if "year" in frame.columns:
             assert frame.filter(pl.col("year") > this_year).is_empty(), name
+
+
+def test_future_products_leave_no_trace(
+    catalog: dict[str, pl.DataFrame], tables: dict[str, pl.DataFrame]
+) -> None:
+    this_year = datetime.date.today().year
+    future = catalog["outputs"].filter(pl.col("year") > this_year).select("product_id")
+    assert not future.is_empty()
+    # Quitarlos del catálogo antes de exportar debe dar exactamente la misma instantánea.
+    without = {
+        name: frame.join(future, on="product_id", how="anti")
+        if "product_id" in frame.columns
+        else frame
+        for name, frame in catalog.items()
+    }
+    changed = []
+    for name, frame in export.build(without).items():
+        try:
+            assert_frame_equal(frame, tables[name], check_row_order=False)
+        except AssertionError:
+            changed.append(name)
+    assert not changed, f"un producto futuro todavía cambia: {changed}"
 
 
 def test_no_ids_reach_the_snapshot(tables: dict[str, pl.DataFrame]) -> None:

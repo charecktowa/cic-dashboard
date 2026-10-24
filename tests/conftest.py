@@ -111,8 +111,9 @@ def fake_catalog(seed: int = 7) -> dict[str, pl.DataFrame]:
     # Un año futuro es un error de captura: la instantánea debe descartarlo.
     future_id = 241
     outputs.append((future_id, title(labs[0]), "Artículo", YEAR + 1, VENUES[0]))
-    output_labs.append((future_id, lab_ids[labs[0]], labs[0]))
-    output_authors.append((future_id, by_lab[labs[0]][0]))
+    # Compartido por dos laboratorios, para que también se note en lab_pairs.
+    output_labs += [(future_id, lab_ids[lab], lab) for lab in labs[:2]]
+    output_authors += [(future_id, by_lab[lab][0]) for lab in labs[:2]]
 
     def frame(rows: list, columns: list[str]) -> pl.DataFrame:
         return pl.DataFrame(rows, schema=columns, orient="row")
