@@ -8,7 +8,7 @@ un servidor público.
 
 Se ejecuta donde la base de datos es accesible:
 
-    uv run --group export python export.py
+    uv run --env-file .env --group export python export.py
 """
 
 import datetime
@@ -37,7 +37,8 @@ PG: dict[str, Any] = {
     "host": os.environ.get("POSTGRES_HOST", "localhost"),
     "port": int(os.environ.get("POSTGRES_PORT", "5432")),
     "user": os.environ.get("POSTGRES_USER", "theiss"),
-    "password": os.environ.get("POSTGRES_PASSWORD", "theiss"),
+    # Sin valor por defecto: la contraseña vive en .env, nunca en el código.
+    "password": os.environ.get("POSTGRES_PASSWORD"),
     "dbname": os.environ.get("POSTGRES_DB", "cic_scrape"),
 }
 KINDS = {"publication": "Artículo", "conference": "Congreso"}
@@ -634,6 +635,8 @@ def write(tables: dict[str, pl.DataFrame], out: Path) -> None:
 
 
 def main() -> None:
+    if not PG["password"]:
+        raise SystemExit("Falta POSTGRES_PASSWORD: cópiala de .env.example a .env (ver README).")
     tables = build(load())
     write(tables, OUT)
     for name, frame in tables.items():

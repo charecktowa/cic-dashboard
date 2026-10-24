@@ -49,11 +49,12 @@ compose.yaml     servicio para el VPS, detrás de Nginx Proxy Manager
 ## 1. Construir la instantánea (en tu máquina)
 
 Necesitas la base `cic_scrape` corriendo (en `theiss-match-cic`: `docker compose up -d db` y
-`db/setup.sh`). Las variables `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`,
-`POSTGRES_PASSWORD` y `POSTGRES_DB` tienen valores por defecto para el entorno local.
+`db/setup.sh`). La conexión se lee de `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`,
+`POSTGRES_PASSWORD` y `POSTGRES_DB`; todas salvo la contraseña tienen valores por defecto para
+el entorno local. Copia `.env.example` a `.env` (está en `.gitignore`) y pon ahí la contraseña.
 
 ```bash
-uv run --group export python export.py
+uv run --env-file .env --group export python export.py
 ```
 
 El grupo `export` añade `psycopg`; la app no lo necesita y la imagen no lo instala.
@@ -192,7 +193,7 @@ del servidor, como los respaldos.
 ## 4. Actualizar los datos
 
 ```bash
-uv run --group export python export.py
+uv run --env-file .env --group export python export.py
 rsync -av data/ vps:~/cic-dashboard/data/
 ssh vps 'cd ~/cic-dashboard && docker compose restart'
 ```
