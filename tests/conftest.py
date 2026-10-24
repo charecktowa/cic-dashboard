@@ -32,6 +32,8 @@ TOPICS = {
     "Ciberseguridad": ["criptografia ligera", "blockchain", "deteccion de intrusiones"],
     "Ciencias de la Información Cuántica": ["computacion cuantica", "algoritmos cuanticos"],
 }
+# Una tesis indexada en OpenAlex: nunca debe mostrarse.
+OPENALEX_THESIS = "Mi tesis doctoral"
 VENUES = ["Computación y Sistemas", "IEEE Access", "Research in Computing Science", "MICAI"]
 
 
@@ -51,16 +53,24 @@ def fake_catalog(seed: int = 7) -> dict[str, pl.DataFrame]:
     by_lab = {lab: [p[0] for p in people if p[3] == lab] for lab in labs}
     everyone = [p[0] for p in people]
 
-    def title(lab: str) -> str:
+    # Cada fuente redacta distinto: si un título de tesis o de proyecto coincidiera con uno
+    # de producto, la prueba de privacidad no podría distinguir cuál se filtró.
+    def title(lab: str, opening: str = "Estudio de") -> str:
         first, second = rng.sample(TOPICS[lab], 2)
-        return f"Estudio de {first} con {second}"
+        return f"{opening} {first} con {second}"
 
     theses, participations = [], []
     for thesis_id in range(1, 81):
         lab = rng.choice(labs)
         director = rng.choice(by_lab[lab])
         theses.append(
-            (thesis_id, title(lab), rng.choice(["Maestría", "Doctorado"]), lab_ids[lab], lab)
+            (
+                thesis_id,
+                title(lab, "Tesis sobre"),
+                rng.choice(["Maestría", "Doctorado"]),
+                lab_ids[lab],
+                lab,
+            )
         )
         co_director = rng.choice([p for p in everyone if p != director])
         committee = rng.sample([p for p in everyone if p not in (director, co_director)], 2)
@@ -85,13 +95,18 @@ def fake_catalog(seed: int = 7) -> dict[str, pl.DataFrame]:
     for project_id in range(1, 41):
         own = rng.sample(labs, 2 if rng.random() < 0.3 else 1)
         year = None if rng.random() < 0.1 else rng.randint(YEAR - 12, YEAR)
-        projects.append((project_id, title(own[0]), year))
+        projects.append((project_id, title(own[0], "Proyecto de"), year))
         project_labs += [(project_id, lab_ids[lab], lab) for lab in own]
         team = rng.sample(by_lab[own[0]], 2)
         project_members += [
             (project_id, team[0], "Responsable técnico"),
             (project_id, team[1], "Colaborador"),
         ]
+
+    # Un asesor externo que firma un producto no es personal investigador: sus títulos no
+    # se publican.
+    externals = [p[0] for p in people if p[3] is None]
+    output_authors.append((1, externals[0]))
 
     # Un año futuro es un error de captura: la instantánea debe descartarlo.
     future_id = 241
@@ -147,13 +162,13 @@ def write_fake_openalex() -> None:
     ).with_columns(citations=pl.lit(50)).write_parquet(FAKE_DATA / "openalex_years.parquet")
     pl.DataFrame(
         {
-            "person": ["Persona 1", "Persona 1"],
-            "title": ["Un título con *asteriscos* y [corchetes]", "Otro trabajo"],
-            "year": [YEAR - 1, None],
-            "type": ["article", "conference-paper"],
-            "venue": ["IEEE Access", ""],
-            "doi": ["https://doi.org/10.1234/abc", ""],
-            "cited_by_count": [120, 3],
-            "is_oa": [True, False],
+            "person": ["Persona 1"] * 3,
+            "title": ["Un título con *asteriscos* y [corchetes]", "Otro trabajo", OPENALEX_THESIS],
+            "year": [YEAR - 1, None, YEAR - 9],
+            "type": ["article", "conference-paper", "dissertation"],
+            "venue": ["IEEE Access", "", ""],
+            "doi": ["https://doi.org/10.1234/abc", "", ""],
+            "cited_by_count": [120, 3, 500],
+            "is_oa": [True, False, False],
         }
     ).write_parquet(FAKE_DATA / "openalex_works.parquet")

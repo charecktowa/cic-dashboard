@@ -1,5 +1,6 @@
 """Cada página corre de principio a fin con la instantánea falsa."""
 
+import datetime
 from pathlib import Path
 
 import polars as pl
@@ -81,6 +82,8 @@ render_profile({person!r})
     captions = " ".join(c.value for c in app.caption)
     linked = "no tiene un perfil de OpenAlex" not in captions
     assert linked == (person == "Persona 1")
+    # La tesis de OpenAlex del catálogo falso (la más citada) nunca se muestra.
+    assert "Mi tesis doctoral" not in " ".join(m.value for m in app.markdown)
 
 
 def test_missing_optional_table_is_none() -> None:
@@ -90,7 +93,16 @@ def test_missing_optional_table_is_none() -> None:
 
 
 @pytest.mark.usefixtures("tables")
-def test_profile_lists_catalog_titles() -> None:
+def test_profile_lists_catalog_titles(catalog: dict[str, pl.DataFrame]) -> None:
+    from advisor import MARKDOWN_SPECIAL
+
+    newest = (
+        catalog["output_authors"]
+        .filter(pl.col("person_id") == 1)
+        .join(catalog["outputs"], on="product_id")
+        .filter(pl.col("year") <= datetime.date.today().year)
+        .sort("year", descending=True)["title"][0]
+    )
     script = """
 import streamlit as st
 from advisor import render_profile
@@ -98,7 +110,9 @@ render_profile('Persona 1')
 """
     app = AppTest.from_string(script, default_timeout=60).run()
     assert not app.exception, app.exception
-    assert any("catálogo del CIC" in m.value for m in app.markdown)
+    markdown = " ".join(m.value for m in app.markdown)
+    assert "catálogo del CIC" in markdown
+    assert newest.translate(MARKDOWN_SPECIAL) in markdown
 
 
 @pytest.mark.usefixtures("tables")

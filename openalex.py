@@ -29,6 +29,9 @@ DATA = Path(os.environ.get("CIC_DATA_DIR", ROOT / "data"))
 MAPPING = ROOT / "openalex_authors.csv"
 API = "https://api.openalex.org"
 TOP_WORKS = 25
+# Ningún título de tesis se publica, tampoco las que OpenAlex indexa. La app no incluye
+# este script, así que advisor.HIDDEN_WORK_TYPES repite la lista.
+HIDDEN_TYPES = ("dissertation",)
 IPN_NAMES = ("instituto politecnico nacional", "national polytechnic institute")
 FIELDS = ["person", "openalex_ids", "display_name", "works_count", "institution", "status"]
 
@@ -146,7 +149,7 @@ def fetch() -> None:
                 )
         listed = get(
             "/works",
-            filter=f"author.id:{'|'.join(ids)}",
+            filter=f"author.id:{'|'.join(ids)}" + "".join(f",type:!{t}" for t in HIDDEN_TYPES),
             sort="cited_by_count:desc",
             per_page=TOP_WORKS,
             select="title,publication_year,type,doi,cited_by_count,open_access,primary_location",

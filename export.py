@@ -520,17 +520,18 @@ def term_tables(
     }
 
 
-def output_titles(d: dict[str, pl.DataFrame], kept: pl.DataFrame) -> pl.DataFrame:
+def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
     """Títulos de artículos y congresos del personal investigador.
 
     Nunca se incluyen títulos de tesis ni de proyectos: solo publicaciones del personal
-    investigador, que ya son públicas y llevan su nombre en el sitio del CIC.
+    investigador, que ya son públicas y llevan su nombre en el sitio del CIC. Quien no
+    tiene laboratorio (un asesor externo) no aparece, aunque firme un producto.
     """
+    staff = d["people"].drop_nulls("lab").select("person_id", "person")
     return (
         d["output_authors"]
         .join(d["outputs"].select("product_id", "title", "year", "kind"), on="product_id")
-        .join(d["people"].select("person_id", "person"), on="person_id")
-        .join(kept, on="person", how="semi")
+        .join(staff, on="person_id")
         .filter(
             pl.col("kind").is_in(list(KINDS.values()))
             & pl.col("title").is_not_null()
@@ -564,7 +565,7 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
         "projects_by_scope": by_scope,
         "projects_by_team": by_team,
         "venues": venues(d),
-        "output_titles": output_titles(d, profiles["people"].select("person")),
+        "output_titles": output_titles(d),
         **term_tables(
             docs["docs"],
             docs["doc_labs"],

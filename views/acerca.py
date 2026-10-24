@@ -30,8 +30,8 @@ cita su origen en cada página y no tiene fines de lucro.
   es posible descargar el catálogo desde aquí.
 - Los títulos de **artículos y congresos del personal investigador** sí se muestran: son
   publicaciones públicas y aparecen con el nombre de la persona. Los de
-  [OpenAlex](https://openalex.org) (CC0) llevan enlace a su DOI; los del catálogo del CIC,
-  año y tipo.
+  [OpenAlex](https://openalex.org) (CC0) llevan enlace a su DOI cuando está disponible y
+  nunca incluyen tesis; los del catálogo del CIC, año y tipo.
 - Los nombres que aparecen son de personal investigador y asesores, tal como figuran en el
   sitio del CIC, junto con cifras que cualquiera puede contar ahí.
 

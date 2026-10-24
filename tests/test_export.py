@@ -14,15 +14,23 @@ def test_only_product_titles_are_published(
     catalog: dict[str, pl.DataFrame], tables: dict[str, pl.DataFrame]
 ) -> None:
     products = set(catalog["outputs"]["title"])
-    # El catálogo falso reutiliza la misma frase para tesis y productos; en los datos
-    # reales no coinciden, así que solo se vigilan los títulos que no son de producto.
-    hidden = (set(catalog["theses"]["title"]) | set(catalog["projects"]["title"])) - products
+    hidden = set(catalog["theses"]["title"]) | set(catalog["projects"]["title"])
+    # Si se repitieran, un título filtrado pasaría por uno de producto y no se notaría.
+    assert hidden and not hidden & products
     for name, frame in tables.items():
         assert "title" not in frame.columns or name == "output_titles", name
         for column in frame.select(pl.col(pl.String)).columns:
             leaked = hidden & set(frame[column].drop_nulls())
             assert not leaked, f"{name}.{column} publica un título oculto"
     assert set(tables["output_titles"]["title"]) <= products
+
+
+def test_titles_belong_to_research_staff(tables: dict[str, pl.DataFrame]) -> None:
+    people = tables["people"]
+    externals = people.filter(pl.col("lab").is_null() & (pl.col("outputs") > 0))
+    assert not externals.is_empty(), "el catálogo falso debe tener un externo con productos"
+    staff = set(people.drop_nulls("lab")["person"])
+    assert set(tables["output_titles"]["person"]) <= staff
 
 
 def test_no_future_years_reach_the_snapshot(tables: dict[str, pl.DataFrame]) -> None:

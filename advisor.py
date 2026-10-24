@@ -32,9 +32,10 @@ WORK_TYPES = {
     "book": "Libro",
     "preprint": "Preprint",
     "review": "Revisión",
-    "dissertation": "Tesis",
     "dataset": "Datos",
 }
+# Las tesis no se muestran, tampoco las de OpenAlex (ver openalex.HIDDEN_TYPES).
+HIDDEN_WORK_TYPES = ["dissertation"]
 # Caracteres que Markdown interpretaría dentro de un título.
 MARKDOWN_SPECIAL = str.maketrans({c: f"\\{c}" for c in "\\`*_{}[]<>()#+-.!|"})
 WORK_COLORS = {
@@ -301,8 +302,11 @@ def render_openalex(person: str) -> None:
             show(fig)
 
     works = load_optional("openalex_works")
+    # Una instantánea anterior al filtro de openalex.py aún puede traer tesis.
     top = (
-        works.filter(pl.col("person") == person).sort("cited_by_count", descending=True)
+        works.filter((pl.col("person") == person) & ~pl.col("type").is_in(HIDDEN_WORK_TYPES)).sort(
+            "cited_by_count", descending=True
+        )
         if works is not None
         else None
     )
