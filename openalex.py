@@ -211,16 +211,19 @@ def cic_venue_counts(mapping: list[dict[str, str]]) -> list[dict[str, Any]]:
     """Trabajos por revista de todo el CIC (lab nulo) y de cada laboratorio.
 
     Sumar las revistas de cada persona contaría dos veces un artículo con dos autores del
-    CIC; una consulta con los ids de todo el grupo lo cuenta una vez.
+    CIC; una consulta con los ids de todo el grupo lo cuenta una vez. Solo cuenta el
+    personal actual con laboratorio: el CSV conserva a quien ya se fue o a quien se agregó a
+    mano, y su trayectoria no es del CIC.
     """
     people = pl.read_parquet(DATA / "people.parquet").drop_nulls("lab")
     labs = dict(people.select("person", "lab").iter_rows())
     groups: dict[str | None, list[str]] = {None: []}
     for row in mapping:
+        if row["person"] not in labs:
+            continue
         ids = split_ids(row)
         groups[None] += ids
-        if row["person"] in labs:
-            groups.setdefault(labs[row["person"]], []).extend(ids)
+        groups.setdefault(labs[row["person"]], []).extend(ids)
     rows = []
     for lab, ids in groups.items():
         unique = list(dict.fromkeys(ids))

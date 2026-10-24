@@ -255,7 +255,9 @@ def test_cic_venues_count_a_shared_work_once(
         # Ana está partida en dos perfiles; uno se repite por error en otra fila.
         {"person": "Ana López", "openalex_ids": "A7|A9"},
         {"person": "Luis Pérez", "openalex_ids": "A1|A9"},
+        # Ni una persona externa ni quien ya no está en el CIC cuentan.
         {"person": "Externa", "openalex_ids": "A5"},
+        {"person": "Se fue", "openalex_ids": "A6"},
     ]
     api.replies = [{"group_by": []}] * 3
 
@@ -268,7 +270,7 @@ def test_cic_venues_count_a_shared_work_once(
         for r in api.requests
     ]
     assert [f.split(",")[0] for f in filters] == [
-        "author.id:A7|A9|A1|A5",
+        "author.id:A7|A9|A1",
         "author.id:A7|A9",
         "author.id:A1|A9",
     ]

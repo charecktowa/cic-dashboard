@@ -201,8 +201,10 @@ elif not show_openalex_venues(openalex_venues.filter(in_lab), venue_top):
     st.info("Ninguna persona de este laboratorio tiene un perfil de OpenAlex vinculado.")
 with_venue = venues.filter(pl.col("lab").is_null())["outputs"].sum()
 all_outputs = dict(load("totals").iter_rows())["Artículos y congresos"]
+# Las mismas personas que openalex.cic_venue_counts(): el personal con laboratorio.
+staff = load("people").drop_nulls("lab").select("person")
 authors = load_optional("openalex_authors")
-linked = 0 if authors is None else authors.height
+linked = 0 if authors is None else authors.join(staff, on="person").height
 explain(
     f"""
 - **Qué cuenta:** los artículos en revista y los trabajos en congreso del catálogo del CIC
