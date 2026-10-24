@@ -186,7 +186,9 @@ def test_ranking_puts_the_leader_on_top() -> None:
 def test_every_lab_keeps_its_color(page: str) -> None:
     import common
 
-    colors = common.lab_colors()
+    full = common.lab_colors()
+    # Una gráfica estrecha nombra a los laboratorios por sus siglas, con el mismo color.
+    colors = full | {common.lab_code(lab): color for lab, color in full.items()}
     traces = [trace for spec in chart_specs(open_page(page)) for trace in spec["data"]]
     by_lab = [trace for trace in traces if trace.get("name") in colors]
     # Sin esto, una página que dejara de dibujar sus gráficas por laboratorio pasaría.
@@ -265,3 +267,17 @@ def test_advisor_profile_opens_from_the_url(name: str, shown: bool) -> None:
     app = open_page("asesores", persona=name)
     assert not app.exception, app.exception
     assert profile_headers(app) == ([f"### {name}"] if shown else [])
+
+
+@pytest.mark.usefixtures("tables")
+def test_publishing_vs_supervising_fits_a_phone() -> None:
+    import common
+
+    scatter = next(
+        spec
+        for spec in chart_specs(open_page("asesores"))
+        if spec["data"] and spec["data"][0]["type"] == "scatter"
+    )
+    codes = {common.lab_code(lab) for lab in common.lab_colors()}
+    assert {trace["name"] for trace in scatter["data"]} <= codes
+    assert scatter["layout"]["legend"]["orientation"] == "h"
