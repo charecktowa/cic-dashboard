@@ -2,9 +2,10 @@
 
 Todo lo que escribe este script está agregado: conteos por año, laboratorio,
 rol, revista o término. Las únicas excepciones son los títulos de artículos,
-congresos y proyectos del personal investigador (nunca de tesis). No sale
-ningún id ni nombre de estudiante, así que la carpeta data/ se puede copiar a
-un servidor público.
+congresos y proyectos del personal investigador, y los de tesis con sus
+directores y comité. No sale ningún id ni nombre de estudiante (el catálogo no
+guarda al alumno), así que la carpeta data/ se puede copiar a un servidor
+público.
 
 Se ejecuta donde la base de datos es accesible:
 
@@ -570,10 +571,9 @@ def term_tables(
 def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
     """Títulos de artículos y congresos del personal investigador.
 
-    Nunca se incluyen títulos de tesis: solo publicaciones del personal investigador, que
-    ya son públicas y llevan su nombre en el sitio del CIC (los proyectos van aparte, en
-    project_titles). Quien no tiene laboratorio (un asesor externo) no aparece, aunque
-    firme un producto.
+    Solo publicaciones del personal investigador, que ya son públicas y llevan su nombre en
+    el sitio del CIC; los proyectos y las tesis van aparte (project_titles, thesis_titles).
+    Quien no tiene laboratorio (un asesor externo) no aparece, aunque firme un producto.
     """
     staff = d["people"].drop_nulls("lab").select("person_id", "person")
     return (
@@ -599,8 +599,7 @@ def project_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
     Un proyecto registrado en varios años (el mismo título, sin importar mayúsculas)
     aparece una vez con todos sus años, y con el título y el rol de su registro más
     reciente: alguien puede pasar de colaborador a responsable técnico. Como en
-    output_titles, quien no tiene laboratorio en el CIC no aparece, y nunca se incluyen
-    títulos de tesis.
+    output_titles, quien no tiene laboratorio en el CIC no aparece.
     """
     staff = d["people"].drop_nulls("lab").select("person_id", "person")
     title = pl.col("title").str.strip_chars()
@@ -623,6 +622,38 @@ def project_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
         .with_columns(last=pl.col("years").list.max())
         .sort(["person", "last", "title"], descending=[False, True, False], nulls_last=True)
         .select("person", "title", "years", "role")
+    )
+
+
+def thesis_titles(d: dict[str, pl.DataFrame], kept: pl.DataFrame) -> pl.DataFrame:
+    """Títulos de tesis con su nivel, laboratorio, directores y comité; nunca el alumno.
+
+    El catálogo no guarda al alumno, así que no hay forma de que salga. Solo se nombra a
+    quien ya aparece en el tablero (`kept`); el resto de quienes participaron, como
+    profesores que ya no están en el CIC, solo se cuenta en `others`. Cada persona cuenta
+    una vez por tesis, con su rol más fuerte.
+    """
+    named = d["people"].select("person_id", "person").join(kept, on="person")
+    person = pl.col("person")
+    roles = (
+        d["participations"]
+        .join(named, on="person_id", how="left")
+        .group_by("thesis_id")
+        .agg(
+            director_1=person.filter(pl.col("role") == "Director 1").first(),
+            director_2=person.filter(pl.col("role") == "Director 2").first(),
+            committee=person.filter(pl.col("role") == COMMITTEE).drop_nulls().sort(),
+            others=person.is_null().sum(),
+        )
+    )
+    return (
+        d["theses"]
+        .select("thesis_id", "title", "level", "lab")
+        .filter(pl.col("title").str.strip_chars().str.len_chars() > 0)
+        .join(roles, on="thesis_id", how="left")
+        .with_columns(pl.col("others").fill_null(0))
+        .sort("title")
+        .drop("thesis_id")
     )
 
 
@@ -661,6 +692,7 @@ def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
         "person_venues": person_venues(d, profiles["people"].select("person")),
         "output_titles": output_titles(d),
         "project_titles": project_titles(d),
+        "thesis_titles": thesis_titles(d, profiles["people"].select("person")),
         **term_tables(
             docs["docs"],
             docs["doc_labs"],

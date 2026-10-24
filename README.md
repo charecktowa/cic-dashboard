@@ -20,15 +20,19 @@ asesor. Hecho con Streamlit y Plotly.
 
 - `export.py` lee la base `cic_scrape` y escribe en `data/` archivos Parquet **agregados**:
   conteos por año, laboratorio, rol, revista, término o persona investigadora. Las únicas
-  excepciones son los títulos de artículos, congresos y proyectos del personal investigador.
-  No escribe ids ni datos de estudiantes.
+  excepciones son los títulos de artículos, congresos y proyectos del personal investigador,
+  y los de tesis con sus directores y comité. No escribe ids ni datos de estudiantes: el
+  catálogo ni siquiera guarda al alumno de cada tesis.
 - La app solo lee `data/`. No tiene conexión a la base de datos ni credenciales, y no ofrece
   tablas de títulos ni botones de descarga.
 - Los términos que aparecen en menos de tres títulos se descartan.
 - Los títulos visibles son del personal investigador: sus artículos y congresos del catálogo
   del CIC, con año y tipo; los de [OpenAlex](https://openalex.org) (CC0), con enlace a su DOI
   cuando lo tienen; y sus proyectos de investigación, con años y rol. Todos sus integrantes
-  son personal del CIC. Ningún título de tesis (tampoco las que indexa OpenAlex).
+  son personal del CIC.
+- Las tesis muestran título, nivel, directores y comité, **nunca al alumno**. Solo se nombra
+  a quien ya aparece en el tablero; el resto se cuenta ("y 2 personas más"). Las tesis que
+  indexa OpenAlex siguen ocultas, porque ahí el autor suele ser el alumno.
 
 Lo que una gráfica muestra llega al navegador: los valores del tooltip se pueden leer y la
 barra de Plotly guarda un PNG. Que todo esté agregado antes es lo que lo vuelve inofensivo.
