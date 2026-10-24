@@ -3,6 +3,7 @@
 import datetime
 
 import polars as pl
+import pytest
 from polars.testing import assert_frame_equal
 
 import export
@@ -44,17 +45,16 @@ def test_no_future_years_reach_the_snapshot(tables: dict[str, pl.DataFrame]) -> 
             assert frame.filter(pl.col("year") > this_year).is_empty(), name
 
 
-def test_future_products_leave_no_trace(
-    catalog: dict[str, pl.DataFrame], tables: dict[str, pl.DataFrame]
+@pytest.mark.parametrize(("source", "key"), [("outputs", "product_id"), ("projects", "project_id")])
+def test_future_items_leave_no_trace(
+    catalog: dict[str, pl.DataFrame], tables: dict[str, pl.DataFrame], source: str, key: str
 ) -> None:
     this_year = datetime.date.today().year
-    future = catalog["outputs"].filter(pl.col("year") > this_year).select("product_id")
+    future = catalog[source].filter(pl.col("year") > this_year).select(key)
     assert not future.is_empty()
     # Quitarlos del catálogo antes de exportar debe dar exactamente la misma instantánea.
     without = {
-        name: frame.join(future, on="product_id", how="anti")
-        if "product_id" in frame.columns
-        else frame
+        name: frame.join(future, on=key, how="anti") if key in frame.columns else frame
         for name, frame in catalog.items()
     }
     changed = []
@@ -63,7 +63,7 @@ def test_future_products_leave_no_trace(
             assert_frame_equal(frame, tables[name], check_row_order=False)
         except AssertionError:
             changed.append(name)
-    assert not changed, f"un producto futuro todavía cambia: {changed}"
+    assert not changed, f"un elemento futuro todavía cambia: {changed}"
 
 
 def test_no_ids_reach_the_snapshot(tables: dict[str, pl.DataFrame]) -> None:

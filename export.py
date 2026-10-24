@@ -563,14 +563,19 @@ def output_titles(d: dict[str, pl.DataFrame]) -> pl.DataFrame:
 def build(d: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     """Todas las tablas agregadas a partir de las tablas a nivel de registro."""
     # Un año futuro es un error de captura: no debe mover totales ni tendencias. Sus
-    # laboratorios y autores también se van, o seguirían contando en pares y temas.
-    outputs = d["outputs"].filter(pl.col("year").is_null() | (pl.col("year") <= CURRENT_YEAR))
-    kept = outputs.select("product_id")
+    # laboratorios, autores y equipos también se van, o seguirían contando en pares y temas.
+    known = pl.col("year").is_null() | (pl.col("year") <= CURRENT_YEAR)
+    outputs = d["outputs"].filter(known)
+    projects = d["projects"].filter(known)
+    kept, kept_projects = outputs.select("product_id"), projects.select("project_id")
     d = {
         **d,
         "outputs": outputs,
         "output_labs": d["output_labs"].join(kept, on="product_id", how="semi"),
         "output_authors": d["output_authors"].join(kept, on="product_id", how="semi"),
+        "projects": projects,
+        "project_labs": d["project_labs"].join(kept_projects, on="project_id", how="semi"),
+        "project_members": d["project_members"].join(kept_projects, on="project_id", how="semi"),
     }
     profiles = people_profiles(d)
     docs = documents(d)

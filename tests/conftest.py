@@ -114,6 +114,11 @@ def fake_catalog(seed: int = 7) -> dict[str, pl.DataFrame]:
     # Compartido por dos laboratorios, para que también se note en lab_pairs.
     output_labs += [(future_id, lab_ids[lab], lab) for lab in labs[:2]]
     output_authors += [(future_id, by_lab[lab][0]) for lab in labs[:2]]
+    # Lo mismo para un proyecto: no debe contar en totales, tendencias ni pares.
+    future_project = 41
+    projects.append((future_project, title(labs[0], "Proyecto de"), YEAR + 1))
+    project_labs += [(future_project, lab_ids[lab], lab) for lab in labs[:2]]
+    project_members += [(future_project, by_lab[lab][0], "Colaborador") for lab in labs[:2]]
 
     def frame(rows: list, columns: list[str]) -> pl.DataFrame:
         return pl.DataFrame(rows, schema=columns, orient="row")
