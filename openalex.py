@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -34,27 +35,52 @@ TOP_WORKS = 25
 HIDDEN_TYPES = ("dissertation",)
 IPN_NAMES = ("instituto politecnico nacional", "national polytechnic institute")
 FIELDS = ["person", "openalex_ids", "display_name", "works_count", "institution", "status"]
+# Una llamada cada 0.2 s: lejos del límite de OpenAlex (10 por segundo sin llave, 30 con ella).
+MIN_INTERVAL = 0.2
+# Esperas antes de cada reintento; si el último también falla, el error se propaga.
+BACKOFF = (1, 2, 4, 8)
+# Demasiado rápido (429) o una falla pasajera del servidor: vale la pena reintentar.
+RETRY_CODES = {429, 500, 502, 503, 504}
+last_request = 0.0
 
 
 def get(path: str, **params: str | int) -> dict[str, Any]:
     """Una llamada a la API de OpenAlex, con la llave si está en el entorno.
 
-    La llave va en la cabecera y no en la URL: un error o un log muestran la URL.
+    La llave va en la cabecera y no en la URL: un error o un log muestran la URL. Las
+    fallas pasajeras se reintentan con esperas crecientes (BACKOFF).
     """
     key = os.environ.get("OPENALEX_API_KEY")
     headers = {"User-Agent": "cic-dashboard", **({"Authorization": f"Bearer {key}"} if key else {})}
     url = f"{API}{path}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(url, headers=headers)
-    for attempt in range(3):
+    for delay in BACKOFF:
         try:
-            # La URL siempre empieza con la constante API (https), nunca con file:// u otro.
-            with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
-                return json.load(response)
+            return fetch_json(request)
         except urllib.error.HTTPError as error:
-            if error.code != 429 or attempt == 2:
+            if error.code not in RETRY_CODES:
                 raise
-            time.sleep(2**attempt)
-    raise RuntimeError("unreachable")
+            if error.code == 429 and error.headers.get("X-RateLimit-Remaining") == "0":
+                raise SystemExit(
+                    "Se acabó el presupuesto diario de OpenAlex; se renueva a medianoche UTC. "
+                    "Una llave gratuita en OPENALEX_API_KEY lo multiplica."
+                ) from error
+        except urllib.error.URLError:
+            pass  # Sin red un momento: se reintenta igual.
+        time.sleep(delay)
+    return fetch_json(request)
+
+
+def fetch_json(request: urllib.request.Request) -> dict[str, Any]:
+    """Manda la petición respetando MIN_INTERVAL desde la anterior."""
+    global last_request
+    pause = last_request + MIN_INTERVAL - time.monotonic()
+    if pause > 0:
+        time.sleep(pause)
+    last_request = time.monotonic()
+    # La URL siempre empieza con la constante API (https), nunca con file:// u otro.
+    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
+        return json.load(response)
 
 
 def is_ipn(author: dict[str, Any]) -> bool:

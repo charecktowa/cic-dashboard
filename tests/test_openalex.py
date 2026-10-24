@@ -1,42 +1,111 @@
 """openalex.py habla con la API sin red: urlopen se reemplaza por respuestas fijas."""
 
+import email.message
 import io
 import json
+import urllib.error
 import urllib.request
+from dataclasses import dataclass, field
 
 import pytest
 
 import openalex
 
 
+@dataclass
+class FakeApi:
+    """Respuestas en orden (un dict o una excepción), y lo que openalex.get() mandó."""
+
+    replies: list[dict | Exception] = field(default_factory=list)
+    requests: list[urllib.request.Request] = field(default_factory=list)
+    sleeps: list[float] = field(default_factory=list)
+
+
 @pytest.fixture
-def sent(monkeypatch: pytest.MonkeyPatch) -> list[urllib.request.Request]:
-    """Las peticiones que openalex.get() manda; cada una recibe un JSON vacío."""
-    requests: list[urllib.request.Request] = []
+def api(monkeypatch: pytest.MonkeyPatch) -> FakeApi:
+    fake = FakeApi()
 
     def urlopen(request: urllib.request.Request, timeout: float) -> io.BytesIO:
-        requests.append(request)
-        return io.BytesIO(json.dumps({}).encode())
+        fake.requests.append(request)
+        reply = fake.replies.pop(0) if fake.replies else {}
+        if isinstance(reply, Exception):
+            raise reply
+        return io.BytesIO(json.dumps(reply).encode())
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
-    return requests
+    # Las esperas se registran en vez de dormir; sin pausa entre llamadas salvo que una
+    # prueba la pida.
+    monkeypatch.setattr(openalex.time, "sleep", fake.sleeps.append)
+    monkeypatch.setattr(openalex, "MIN_INTERVAL", 0)
+    monkeypatch.setattr(openalex, "last_request", 0.0)
+    return fake
+
+
+def http_error(code: int, **headers: str) -> urllib.error.HTTPError:
+    message = email.message.Message()
+    for name, value in headers.items():
+        message[name] = value
+    return urllib.error.HTTPError(openalex.API, code, "error", message, None)
 
 
 def test_the_key_goes_in_a_header_not_the_url(
-    sent: list[urllib.request.Request], monkeypatch: pytest.MonkeyPatch
+    api: FakeApi, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENALEX_API_KEY", "llave-de-prueba")
     openalex.get("/authors", search="Ana López")
-    (request,) = sent
+    (request,) = api.requests
     assert request.get_header("Authorization") == "Bearer llave-de-prueba"
     assert "llave-de-prueba" not in request.full_url
 
 
 def test_without_a_key_there_is_no_authorization(
-    sent: list[urllib.request.Request], monkeypatch: pytest.MonkeyPatch
+    api: FakeApi, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Así queda en .env.example: la variable existe pero vacía.
     monkeypatch.setenv("OPENALEX_API_KEY", "")
     openalex.get("/authors", search="Ana López")
-    (request,) = sent
+    (request,) = api.requests
     assert request.get_header("Authorization") is None
+
+
+@pytest.mark.parametrize(
+    "failure", [http_error(429), http_error(503), urllib.error.URLError("sin red")]
+)
+def test_passing_failures_are_retried(api: FakeApi, failure: Exception) -> None:
+    api.replies = [failure, {"results": []}]
+    assert openalex.get("/authors") == {"results": []}
+    assert len(api.requests) == 2
+    assert api.sleeps == [openalex.BACKOFF[0]]
+
+
+def test_retries_stop_after_the_backoff(api: FakeApi) -> None:
+    api.replies = [http_error(503)] * (len(openalex.BACKOFF) + 1)
+    with pytest.raises(urllib.error.HTTPError):
+        openalex.get("/authors")
+    assert len(api.requests) == len(openalex.BACKOFF) + 1
+    assert api.sleeps == list(openalex.BACKOFF)
+
+
+def test_a_bad_request_is_not_retried(api: FakeApi) -> None:
+    api.replies = [http_error(404)]
+    with pytest.raises(urllib.error.HTTPError):
+        openalex.get("/authors/A0")
+    assert len(api.requests) == 1
+    assert not api.sleeps
+
+
+def test_an_exhausted_daily_budget_stops_at_once(api: FakeApi) -> None:
+    api.replies = [http_error(429, **{"X-RateLimit-Remaining": "0"})]
+    with pytest.raises(SystemExit, match="presupuesto diario"):
+        openalex.get("/authors")
+    assert len(api.requests) == 1
+
+
+def test_calls_are_spaced_out(api: FakeApi, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(openalex, "MIN_INTERVAL", 0.2)
+    openalex.get("/authors")
+    openalex.get("/authors")
+    # La segunda llamada llega en seguida (las esperas no duermen), así que espera casi
+    # todo el intervalo.
+    (pause,) = api.sleeps
+    assert 0.1 < pause <= 0.2
