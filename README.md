@@ -207,10 +207,11 @@ del servidor, como los respaldos.
 ```bash
 uv run --env-file .env --group export python export.py
 rsync -av data/ vps:~/cic-dashboard/data/
-ssh vps 'cd ~/cic-dashboard && docker compose restart'
 ```
 
-El reinicio es necesario porque `st.cache_data` guarda la instantánea en memoria.
+No hace falta reiniciar ni reconstruir nada: la app vuelve a leer cada tabla en cuanto
+cambia la fecha de modificación de su archivo. `rsync` reemplaza cada archivo de golpe, así
+que nunca se lee uno a medio copiar.
 
 ## Desarrollo
 

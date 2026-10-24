@@ -547,3 +547,21 @@ def test_cic_venues_stack_both_kinds() -> None:
     # Por omisión, todos los laboratorios: las filas con laboratorio nulo.
     venues = common.load("venues").filter(pl.col("lab").is_null())
     assert_venue_chart(open_page("produccion"), venues)
+
+
+def test_load_rereads_a_table_when_its_file_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    import common
+
+    monkeypatch.setattr(common, "DATA", tmp_path)
+    table = tmp_path / "prueba.parquet"
+    pl.DataFrame({"v": [1]}).write_parquet(table)
+    assert common.load("prueba")["v"].to_list() == [1]
+    # Un data/ nuevo copiado encima: otro contenido y otra fecha de modificación.
+    pl.DataFrame({"v": [2]}).write_parquet(table)
+    stat = table.stat()
+    os.utime(table, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    assert common.load("prueba")["v"].to_list() == [2]
