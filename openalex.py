@@ -160,10 +160,29 @@ def read_mapping() -> list[dict[str, str]]:
         return list(csv.DictReader(file))
 
 
+def works_filter(ids: list[str]) -> str:
+    """Los trabajos de estos autores de OpenAlex, sin los tipos ocultos (tesis)."""
+    return f"author.id:{'|'.join(ids)}" + "".join(f",type:!{t}" for t in HIDDEN_TYPES)
+
+
+def venue_counts(person: str, ids: list[str]) -> list[dict[str, Any]]:
+    """Todos sus trabajos por revista o congreso, no solo los más citados.
+
+    Una sola consulta agrupada trae hasta 200 revistas, de la que más trabajos tiene a la
+    que menos. Los trabajos sin revista no forman grupo y no cuentan.
+    """
+    groups = get("/works", filter=works_filter(ids), group_by="primary_location.source.id")
+    return [
+        {"person": person, "venue": group["key_display_name"], "works": group["count"]}
+        for group in groups["group_by"]
+        if group["key_display_name"]
+    ]
+
+
 def fetch() -> None:
-    """Métricas, citas por año y trabajos más citados de los autores revisados."""
+    """Métricas, citas por año, revistas y trabajos más citados de los autores revisados."""
     mapping = [row for row in read_mapping() if row["openalex_ids"].strip()]
-    authors, years, works = [], [], []
+    authors, years, works, venues = [], [], [], []
     for row in mapping:
         person = row["person"]
         # Una persona puede estar partida en varios perfiles de OpenAlex: se suman.
@@ -193,9 +212,10 @@ def fetch() -> None:
                         "citations": year.get("cited_by_count", 0),
                     }
                 )
+        venues += venue_counts(person, ids)
         listed = get(
             "/works",
-            filter=f"author.id:{'|'.join(ids)}" + "".join(f",type:!{t}" for t in HIDDEN_TYPES),
+            filter=works_filter(ids),
             sort="cited_by_count:desc",
             per_page=TOP_WORKS,
             select="title,publication_year,type,doi,cited_by_count,open_access,primary_location",
@@ -221,6 +241,9 @@ def fetch() -> None:
         DATA / "openalex_years.parquet"
     )
     pl.DataFrame(works).write_parquet(DATA / "openalex_works.parquet")
+    pl.DataFrame(
+        venues, schema={"person": pl.String, "venue": pl.String, "works": pl.Int64}
+    ).write_parquet(DATA / "openalex_venues.parquet")
     print(f"\n{len(authors)} perfiles de OpenAlex escritos en {DATA}")
 
 

@@ -139,3 +139,38 @@ def test_match_keeps_rows_reviewed_by_hand(
     # Solo se buscó a Luis: la fila corregida no vuelve a consultarse.
     assert len(api.requests) == 1
     assert "Luis" in api.requests[0].full_url
+
+
+def test_fetch_counts_every_work_by_venue(
+    api: FakeApi, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mapping = tmp_path / "openalex_authors.csv"
+    mapping.write_text(
+        "person,openalex_ids,display_name,works_count,institution,status\n"
+        "Ana López,A9,Ana López,12,Instituto Politécnico Nacional,auto\n"
+    )
+    monkeypatch.setattr(openalex, "DATA", tmp_path)
+    monkeypatch.setattr(openalex, "MAPPING", mapping)
+    api.replies = [
+        {
+            "works_count": 12,
+            "cited_by_count": 40,
+            "summary_stats": {"h_index": 3},
+            "counts_by_year": [{"year": 2024, "works_count": 2, "cited_by_count": 5}],
+        },
+        {
+            "group_by": [
+                {"key": "https://openalex.org/S1", "key_display_name": "IEEE Access", "count": 7},
+                {"key": "https://openalex.org/S2", "key_display_name": "", "count": 2},
+            ]
+        },
+        {"results": []},
+    ]
+
+    openalex.fetch()
+
+    venues = pl.read_parquet(tmp_path / "openalex_venues.parquet")
+    assert venues.to_dicts() == [{"person": "Ana López", "venue": "IEEE Access", "works": 7}]
+    grouped = next(r for r in api.requests if "group_by" in r.full_url)
+    # Todos sus trabajos menos las tesis, que nunca se publican.
+    assert "dissertation" in grouped.full_url
