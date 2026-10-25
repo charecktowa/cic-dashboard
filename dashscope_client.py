@@ -4,7 +4,9 @@ Habla HTTP con la biblioteca estándar, como openalex.py: el SDK oficial traía 
 (fastapi, opentelemetry, tiktoken…) a la imagen para dos llamadas POST.
 """
 
+import http.client
 import json
+import logging
 import math
 import os
 import urllib.error
@@ -28,6 +30,9 @@ RERANK_INSTRUCTION = (
     "Prefer titles about the same task, method, or subject; do not reward superficial word overlap."
 )
 TextType = Literal["query", "document"]
+# Las fallas quedan en el log del servidor (docker logs) con su código, nunca con la llave
+# ni con la idea: así se distingue una llave vencida o sin saldo de una caída pasajera.
+log = logging.getLogger(__name__)
 
 
 class ApiError(RuntimeError):
@@ -60,12 +65,25 @@ def post(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
             code = json.loads(error.read()).get("code") or "sin código"
         except (ValueError, AttributeError):
             code = "sin código"
-        raise ApiError(f"DashScope respondió con HTTP {error.code} ({code})") from None
-    except (urllib.error.URLError, TimeoutError, ConnectionError, ValueError):
-        raise ApiError("No se pudo conectar con DashScope") from None
+        raise failure(path, f"DashScope respondió con HTTP {error.code} ({code})") from None
+    except (
+        urllib.error.URLError,
+        http.client.IncompleteRead,
+        TimeoutError,
+        ConnectionError,
+        ValueError,
+    ) as error:
+        # El nombre de la clase basta para saber qué pasó, sin su mensaje.
+        raise failure(path, f"No se pudo conectar con DashScope ({type(error).__name__})") from None
     if not isinstance(reply, dict):
-        raise ApiError("DashScope devolvió una respuesta inesperada")
+        raise failure(path, "DashScope devolvió una respuesta inesperada")
     return reply
+
+
+def failure(path: str, message: str) -> ApiError:
+    """Deja la falla en el log del servidor y la devuelve como ApiError."""
+    log.warning("%s: %s", path.rsplit("/", 1)[-1], message)
+    return ApiError(message)
 
 
 def is_configured() -> bool:

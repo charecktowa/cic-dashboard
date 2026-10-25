@@ -1,8 +1,10 @@
 """El adaptador valida la llamada y la respuesta sin acceder a la red."""
 
 import email.message
+import http.client
 import io
 import json
+import logging
 import urllib.error
 import urllib.request
 from typing import Any
@@ -190,18 +192,29 @@ def test_post_sends_the_key_in_a_header_not_the_url(monkeypatch: pytest.MonkeyPa
         (http_error(502, b"<html>bad gateway</html>"), "HTTP 502 (sin código)"),
         (urllib.error.URLError("sin red"), "No se pudo conectar"),
         (TimeoutError(), "No se pudo conectar"),
+        (http.client.IncompleteRead(b'{"output"'), "No se pudo conectar"),
     ],
 )
 def test_post_reports_failures_without_the_key(
-    monkeypatch: pytest.MonkeyPatch, failure: Exception, message: str
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure: Exception,
+    message: str,
 ) -> None:
     def urlopen(request: urllib.request.Request, timeout: float) -> io.BytesIO:
         raise failure
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
-    with pytest.raises(dashscope_client.ApiError) as error:
-        dashscope_client.post("services/x", {}, KEY)
+    with (
+        caplog.at_level(logging.WARNING, logger="dashscope_client"),
+        pytest.raises(dashscope_client.ApiError) as error,
+    ):
+        dashscope_client.post("services/x", {"input": {"texts": ["idea privada"]}}, KEY)
     assert message in str(error.value)
     assert KEY not in str(error.value)
+    # La falla queda en el log del servidor, sin la llave ni el contenido de la petición.
+    assert message in caplog.text
+    assert KEY not in caplog.text
+    assert "idea privada" not in caplog.text
     # Sin la excepción original encadenada: un traceback tampoco la muestra.
     assert error.value.__cause__ is None and error.value.__suppress_context__
