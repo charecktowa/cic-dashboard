@@ -48,6 +48,12 @@ def covered_pairs(query: str, corpus: Corpus) -> list[str]:
     ]
 
 
+def known_words(label: str, corpus: Corpus) -> bool:
+    """Si cada palabra de contenido de la etiqueta aparece en algún título del catálogo."""
+    words = [term for term in text.terms(label) if " " not in term]
+    return bool(words) and all(corpus.document_frequency.get(word, 0) for word in words)
+
+
 def neighbor_areas(idea: str, missing: list[str], corpus: Corpus) -> list[Suggestion]:
     """Hasta MAX_SUGGESTIONS áreas cercanas a la idea que sí tienen trabajos en el catálogo.
 
@@ -72,8 +78,14 @@ def neighbor_areas(idea: str, missing: list[str], corpus: Corpus) -> list[Sugges
         topic, query = topic.strip(), query.strip()
         if not topic or not query or len(topic) > MAX_TOPIC_CHARS or len(query) > MAX_QUERY_CHARS:
             continue
-        # Sin las palabras que no tienen trabajos, y con al menos un par que sí los tiene.
-        if not set(text.terms(query)) & uncovered and covered_pairs(query, corpus):
+        # La búsqueda, sin las palabras que no tienen trabajos y con al menos un par que sí
+        # los tiene. La etiqueta va bajo "Áreas cercanas con trabajos en el CIC": sus palabras
+        # también deben estar en el catálogo, aunque no sean las de la búsqueda.
+        if (
+            not set(text.terms(query)) & uncovered
+            and covered_pairs(query, corpus)
+            and known_words(topic, corpus)
+        ):
             suggestions.append(Suggestion(topic, query))
         if len(suggestions) == MAX_SUGGESTIONS:
             break

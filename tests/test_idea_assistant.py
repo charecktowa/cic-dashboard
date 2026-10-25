@@ -43,6 +43,9 @@ def test_neighbor_areas_keep_only_what_the_catalog_covers(
                 },
                 # Solo palabras sueltas comunes, ningún par con títulos: tampoco.
                 {"tema": "Análisis", "busqueda": "clasificación con redes y segmentación"},
+                # La búsqueda tiene trabajos, pero la etiqueta promete algo que no: tampoco.
+                {"tema": "Imágenes dentales", "busqueda": "segmentación de imágenes médicas"},
+                {"tema": "De la", "busqueda": "segmentación de imágenes médicas"},
             ]
         },
     )
