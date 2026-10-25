@@ -4,10 +4,12 @@ import polars as pl
 import pytest
 
 from semantic_search import (
+    Corpus,
     apply_rerank,
     bm25_scores,
     hybrid_rank_titles,
     lexical_variants,
+    prepare_index,
     rank_titles,
     recommend,
     validate_index,
@@ -42,14 +44,14 @@ def index_frame() -> pl.DataFrame:
 
 
 def test_rank_titles_deduplicates_shared_titles_and_uses_cosine() -> None:
-    ranked = rank_titles(index_frame(), [1.0, 0.0])
+    ranked = rank_titles(prepare_index(index_frame()), [1.0, 0.0])
     assert ranked["title_id"].to_list() == ["a", "b", "c", "d"]
     assert ranked["score"][0] == pytest.approx(1.0)
     assert ranked["rank"].to_list() == [1, 2, 3, 4]
 
 
 def test_recommend_uses_best_evidence_and_preserves_co_advisors() -> None:
-    index = index_frame()
+    index = prepare_index(index_frame())
     ranked = rank_titles(index, [1.0, 0.0])
     people = recommend(index, ranked, group_by="person", limit=5)
     rows = {row["person"]: row for row in people.iter_rows(named=True)}
@@ -63,7 +65,7 @@ def test_recommend_uses_best_evidence_and_preserves_co_advisors() -> None:
 
 
 def test_recommend_returns_empty_for_unknown_group_or_no_links() -> None:
-    index = index_frame()
+    index = prepare_index(index_frame())
     ranked = rank_titles(index, [1.0, 0.0])
     assert recommend(index, ranked.head(0), group_by="person").is_empty()
     with pytest.raises(ValueError, match="group_by"):
@@ -71,7 +73,7 @@ def test_recommend_returns_empty_for_unknown_group_or_no_links() -> None:
 
 
 def test_rank_titles_checks_vector_dimensions() -> None:
-    index = index_frame()
+    index = prepare_index(index_frame())
     with pytest.raises(ValueError, match="dimensión"):
         rank_titles(index, [1.0, 0.0, 0.0])
 
@@ -85,11 +87,13 @@ def test_validate_index_rejects_a_stale_model() -> None:
 def test_bm25_matches_acronyms_and_hyphenated_terms() -> None:
     scores = bm25_scores(
         "Aplicaciones de seguridad con Man-in-the-Middle para casos de malware",
-        [
-            "Detección de software malicioso",
-            "Análisis de malware en aplicaciones IoT",
-            "Man-in-the-Middle malware detection",
-        ],
+        Corpus.of(
+            [
+                "Detección de software malicioso",
+                "Análisis de malware en aplicaciones IoT",
+                "Man-in-the-Middle malware detection",
+            ]
+        ),
     )
     assert scores[2] > scores[1] > scores[0]
 
@@ -100,9 +104,10 @@ def test_lexical_variants_match_spanish_and_english_forms() -> None:
         "A Hybrid Approach for Adenoid Hypertrophy Detection in X-Ray Images",
         *(f"Detección de aplicaciones con redes neuronales {index}" for index in range(40)),
     ]
-    variants = lexical_variants("detección de adenoides", titles)
+    corpus = Corpus.of(titles)
+    variants = lexical_variants("detección de adenoides", corpus)
     assert variants["adenoides"] == ["adenoidea", "adenoid"]
-    scores = bm25_scores("detección de adenoides", titles)
+    scores = bm25_scores("detección de adenoides", corpus)
     assert scores[0] > scores[2]
     assert scores[1] > scores[2]
 
@@ -125,7 +130,7 @@ def test_hybrid_ranking_promotes_literal_match_without_losing_semantic_rank() ->
         }
     )
     ranked = hybrid_rank_titles(
-        index,
+        prepare_index(index),
         "Aplicaciones de seguridad con Man-in-the-Middle para casos de malware",
         [1.0, 0.0],
     )
@@ -135,7 +140,7 @@ def test_hybrid_ranking_promotes_literal_match_without_losing_semantic_rank() ->
 
 
 def test_hybrid_ranking_uses_semantic_results_when_bm25_has_no_hits() -> None:
-    index = index_frame()
+    index = prepare_index(index_frame())
     ranked = hybrid_rank_titles(index, "privacy healthcare", [0.0, 1.0])
     assert ranked["title_id"][0] == "c"
     assert ranked["bm25_score"].sum() == 0
@@ -168,7 +173,7 @@ def test_apply_rerank_orders_by_relevance_even_if_unsorted() -> None:
 
 
 def test_recommend_follows_the_reranked_order() -> None:
-    index = index_frame()
+    index = prepare_index(index_frame())
     ranked = rank_titles(index, [1.0, 0.0])
     # Por similitud, "Seguridad con malware" (Ciberseguridad) va primero; el reranker
     # prefiere "Robótica móvil" y su laboratorio debe pasar arriba.
@@ -184,9 +189,19 @@ def test_recommend_follows_the_reranked_order() -> None:
     assert people["person"].to_list()[0] == "Asesor C"
 
 
-def test_rank_titles_rejects_vectors_of_different_lengths() -> None:
+def test_prepare_index_rejects_vectors_of_different_lengths() -> None:
     index = index_frame().with_columns(
         embedding=pl.Series([[1.0, 0.0], [1.0, 0.0], [0.8, 0.6, 0.0], [0.0, 1.0], [-1.0, 0.0]])
     )
     with pytest.raises(ValueError, match="misma dimensión"):
-        rank_titles(index, [1.0, 0.0])
+        prepare_index(index)
+
+
+def test_prepare_index_keeps_links_without_vectors() -> None:
+    index = prepare_index(index_frame())
+    # Los vínculos no cargan los vectores: estos viven una sola vez, normalizados.
+    assert "embedding" not in index.links.columns
+    assert index.links.height == 5
+    assert index.unit_vectors.shape == (4, 2)
+    assert index.unit_vectors.dtype.name == "float32"
+    assert (abs((index.unit_vectors**2).sum(axis=1) - 1) < 1e-6).all()

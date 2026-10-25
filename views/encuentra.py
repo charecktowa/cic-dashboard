@@ -1,5 +1,7 @@
 """Búsqueda de laboratorios y asesores a partir de una idea de tesis."""
 
+import threading
+
 import plotly.express as px
 import polars as pl
 import streamlit as st
@@ -7,6 +9,7 @@ import streamlit as st
 import text
 from advisor import profile_dialog
 from common import (
+    DATA,
     LABELS,
     TEAL_SCALE,
     count_label,
@@ -14,7 +17,6 @@ from common import (
     footer,
     lab_colors,
     load,
-    load_shared,
     match,
     show,
 )
@@ -27,14 +29,15 @@ from dashscope_client import (
     is_configured,
     rerank_titles,
 )
-from search_limits import SearchLimiter, client_key
+from search_limits import SEARCHES_AT_ONCE, SearchLimiter, client_key
 from semantic_search import (
     EVIDENCE_LIMIT,
+    TitleIndex,
     apply_rerank,
     hybrid_rank_titles,
     lexical_variants,
+    prepare_index,
     recommend,
-    validate_index,
 )
 
 EXAMPLES = {
@@ -60,24 +63,25 @@ def cached_title_rerank(query: str, titles: tuple[str, ...]) -> list[tuple[int, 
     return rerank_titles(query, titles)
 
 
-def title_index() -> pl.DataFrame:
-    """El índice semántico compartido entre sesiones (load_shared no lo copia)."""
-    shared = load_shared("title_embeddings")
-    if shared is None:
-        raise ValueError("Falta el índice semántico")
-    return shared[0]
+INDEX_PATH = DATA / "title_embeddings.parquet"
+
+
+def index_version() -> int | None:
+    """La versión del índice (su fecha de modificación); None si todavía no existe."""
+    return INDEX_PATH.stat().st_mtime_ns if INDEX_PATH.exists() else None
+
+
+# Uno solo y compartido: la versión anterior sale en cuanto cambia el archivo.
+@st.cache_resource(max_entries=1, show_spinner=False)
+def title_index(version: int) -> TitleIndex:
+    """El índice preparado una vez para todas las sesiones; `version` distingue la caché."""
+    return prepare_index(pl.read_parquet(INDEX_PATH))
 
 
 @st.cache_data(ttl=3600, max_entries=128, show_spinner=False)
 def cached_variants(query: str, version: int) -> dict[str, list[str]]:
-    """Variantes léxicas de la idea; `version` invalida la caché si cambia el índice."""
-    titles = (
-        title_index()
-        .select("title_id", "title")
-        .unique(subset="title_id", keep="first", maintain_order=True)["title"]
-        .to_list()
-    )
-    return lexical_variants(query, titles)
+    """Variantes léxicas de la idea en el vocabulario del índice."""
+    return lexical_variants(query, title_index(version).corpus)
 
 
 @st.cache_data(ttl=3600, max_entries=128, show_spinner=False)
@@ -86,8 +90,14 @@ def cached_ranking(query: str, version: int) -> pl.DataFrame:
 
     Se calcula una vez por idea: abrir un perfil o cambiar de pestaña no lo repite.
     """
-    ranked = hybrid_rank_titles(title_index(), query, cached_query_embedding(query))
+    ranked = hybrid_rank_titles(title_index(version), query, cached_query_embedding(query))
     return ranked.head(max(EVIDENCE_LIMIT, MAX_RERANK_DOCUMENTS))
+
+
+@st.cache_resource
+def search_slots() -> threading.BoundedSemaphore:
+    """Cuántas búsquedas semánticas corren a la vez; las demás esperan su turno."""
+    return threading.BoundedSemaphore(SEARCHES_AT_ONCE)
 
 
 @st.cache_resource
@@ -169,23 +179,23 @@ if idea.strip() != query:
 term_counts = dict(load("term_df").iter_rows())
 recognized = [term for term in text.terms(query) if term in term_counts]
 ignored = [term for term in text.terms(query) if " " not in term and term not in recognized]
-shared = load_shared("title_embeddings")
-index, version = shared if shared is not None else (None, 0)
-variants = cached_variants(query, version) if index is not None else {}
+version = index_version()
+variants: dict[str, list[str]] = {}
 semantic = False
 limit_reason = st.session_state.get("limit_reason")
 
-if index is not None and is_configured() and limit_reason:
+if version is not None and is_configured() and limit_reason:
     st.info(
         f"{LIMIT_MESSAGES[limit_reason]}; mostramos la búsqueda por términos, que no tiene "
         "límite. Vuelve a intentar más tarde.",
         icon=":material/hourglass_top:",
     )
     recognized, labs, people = match(query)
-elif index is not None and is_configured():
+elif version is not None and is_configured():
     try:
-        validate_index(index)
-        with st.spinner("Buscando títulos relacionados…"):
+        with st.spinner("Buscando títulos relacionados…"), search_slots():
+            index = title_index(version)
+            variants = cached_variants(query, version)
             ranked = cached_ranking(query, version)
             candidate_titles = tuple(ranked.head(MAX_RERANK_DOCUMENTS)["title"].to_list())
             try:
@@ -207,7 +217,7 @@ elif index is not None and is_configured():
         )
         recognized, labs, people = match(query)
 else:
-    if index is None:
+    if version is None:
         st.info("Aún no se generó el índice semántico; usamos la búsqueda por términos.")
     elif not is_configured():
         st.info("DashScope no está configurado en el servidor; usamos la búsqueda por términos.")

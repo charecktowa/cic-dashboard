@@ -15,6 +15,9 @@ HOUR, DAY = 3600.0, 86400.0
 PER_CLIENT_PER_HOUR = 20
 GLOBAL_PER_HOUR = 300
 GLOBAL_PER_DAY = 2000
+# Con el índice ya preparado, cada búsqueda en curso suma ~5 MB y ~0.1 s de CPU; el tope
+# acota memoria y CPU si llegan muchas a la vez. Las demás esperan su turno.
+SEARCHES_AT_ONCE = 4
 
 
 class SearchLimiter:

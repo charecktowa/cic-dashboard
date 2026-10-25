@@ -785,7 +785,7 @@ def test_opening_a_profile_does_not_repeat_the_search(
     rankings: list[str] = []
     original = semantic_search.hybrid_rank_titles
 
-    def counted(index: pl.DataFrame, query: str, vector: list[float]) -> pl.DataFrame:
+    def counted(index: semantic_search.TitleIndex, query: str, vector: list[float]) -> pl.DataFrame:
         rankings.append(query)
         return original(index, query, vector)
 
@@ -795,33 +795,6 @@ def test_opening_a_profile_does_not_repeat_the_search(
     opener.click().run()
     assert not app.exception, app.exception
     assert rankings == ["robots móviles que aprenden a caminar"]
-
-
-def test_load_shared_reads_once_per_version(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import os
-
-    import common
-
-    def shared() -> tuple[pl.DataFrame, int]:
-        loaded = common.load_shared("grande")
-        assert loaded is not None
-        return loaded
-
-    monkeypatch.setattr(common, "DATA", tmp_path)
-    assert common.load_shared("grande") is None
-    table = tmp_path / "grande.parquet"
-    pl.DataFrame({"v": [1]}).write_parquet(table)
-    first, version = shared()
-    # La misma tabla, sin copiarla en cada ejecución.
-    assert shared()[0] is first
-    pl.DataFrame({"v": [2]}).write_parquet(table)
-    stat = table.stat()
-    os.utime(table, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
-    newer, newer_version = shared()
-    assert newer["v"].to_list() == [2]
-    assert newer_version != version
 
 
 @pytest.mark.parametrize(

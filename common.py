@@ -157,27 +157,6 @@ def load_optional(name: str) -> pl.DataFrame | None:
     return load(name) if (DATA / f"{name}.parquet").exists() else None
 
 
-def load_shared(name: str) -> tuple[pl.DataFrame, int] | None:
-    """Una tabla grande y su versión, la misma para todas las sesiones; None si no existe.
-
-    load() usa st.cache_data, que entrega una copia nueva en cada ejecución: con el índice
-    de títulos (38 MB) eso pesa en un contenedor de 512 MB. Polars no modifica una tabla en
-    su lugar, así que compartirla es seguro. La versión sirve de llave a otras cachés.
-    """
-    path = DATA / f"{name}.parquet"
-    if not path.exists():
-        return None
-    version = path.stat().st_mtime_ns
-    return read_shared(path, version), version
-
-
-# Una entrada por tabla grande; la versión anterior sale en cuanto cambia el archivo.
-@st.cache_resource(max_entries=1)
-def read_shared(path: Path, version: int) -> pl.DataFrame:
-    """Lee un Parquet una sola vez por versión; `version` solo distingue la caché."""
-    return pl.read_parquet(path)
-
-
 def snapshot() -> datetime.date:
     return load("meta")["snapshot"][0]
 
