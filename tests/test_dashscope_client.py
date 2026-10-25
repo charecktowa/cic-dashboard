@@ -5,6 +5,7 @@ import http.client
 import io
 import json
 import logging
+import ssl
 import urllib.error
 import urllib.request
 from typing import Any
@@ -197,6 +198,8 @@ def test_post_sends_the_key_in_a_header_not_the_url(monkeypatch: pytest.MonkeyPa
         (urllib.error.URLError("sin red"), "No se pudo conectar"),
         (TimeoutError(), "No se pudo conectar"),
         (http.client.IncompleteRead(b'{"output"'), "No se pudo conectar"),
+        (ssl.SSLError("certificado"), "No se pudo conectar"),
+        (http.client.BadStatusLine("HTTP/1.1 ???"), "No se pudo conectar"),
     ],
 )
 def test_post_reports_failures_without_the_key(

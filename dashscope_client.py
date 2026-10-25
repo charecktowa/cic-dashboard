@@ -92,14 +92,10 @@ def send(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
             code = "sin código"
         message = f"DashScope respondió con HTTP {error.code} ({code})"
         raise failure(path, message, transient=error.code in RETRY_CODES) from None
-    except (
-        urllib.error.URLError,
-        http.client.IncompleteRead,
-        TimeoutError,
-        ConnectionError,
-        ValueError,
-    ) as error:
-        # El nombre de la clase basta para saber qué pasó, sin su mensaje.
+    except (OSError, http.client.HTTPException, ValueError) as error:
+        # Las familias completas y no una lista: OSError abarca la red, los tiempos de espera
+        # y TLS (ssl.SSLError); HTTPException, una respuesta rota o cortada. El nombre de la
+        # clase basta para saber qué pasó, sin su mensaje.
         message = f"No se pudo conectar con DashScope ({type(error).__name__})"
         raise failure(path, message, transient=not isinstance(error, ValueError)) from None
     if not isinstance(reply, dict):
