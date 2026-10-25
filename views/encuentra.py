@@ -288,10 +288,13 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
             # Texto plano: lo escribió un modelo y no debe interpretarse como formato.
             st.text(summary.text)
             st.caption("Obra seleccionada")
-            st.text(summary.work)
+            st.text(f"[{summary.work}] {works[summary.work - 1]}")
+            st.caption("Obras citadas")
+            st.text("\n".join(f"[{number}] {work}" for number, work in enumerate(works, start=1)))
             st.caption(
-                "Resumen generado por IA (Qwen) a partir de sus obras afines a tu idea; puede "
-                "equivocarse. Revisa sus trabajos antes de escribirle."
+                "Resumen generado por IA (Qwen) a partir de sus obras afines a tu idea; cada "
+                "número entre corchetes es una de las obras de la lista. Puede equivocarse: "
+                "revisa sus trabajos antes de escribirle."
             )
         elif isinstance(summary, str):
             st.caption(f"{summary}; el resumen con IA no está disponible por ahora.")
@@ -570,10 +573,10 @@ letras o más, la página lo dice.
 **Lo que hace la IA.** Dos ayudas usan un modelo de lenguaje (Qwen3.7 Flash), y solo cuando
 las pides. Si una palabra de tu idea no tiene trabajos, el botón *Sugerir áreas cercanas*
 propone hasta tres áreas que sí tienen títulos en el catálogo; cada una se comprueba antes de
-mostrarse. Al abrir el perfil de una persona desde aquí, un resumen explica por qué podría
-encajar con tu idea y señala una de sus obras afines; solo usa esos títulos, y la obra
-señalada siempre es una de ellas. Ambas pueden equivocarse: revisa los trabajos antes de
-escribirle a alguien.
+mostrarse. Al abrir el perfil de una persona desde aquí, un resumen de 3 a 5 oraciones explica
+por qué podría encajar con tu idea y cita sus obras afines por número, como [1] o [2][3], con
+la lista debajo; solo usa esos títulos, y cada cita y la obra señalada siempre son de ella.
+Ambas pueden equivocarse: revisa los trabajos antes de escribirle a alguien.
 
 **Limitaciones.** Solo se leen títulos, no resúmenes. Las tesis se vinculan con Director 1 y
 Director 2; los comités no cuentan como experiencia de dirección. Es una herramienta para

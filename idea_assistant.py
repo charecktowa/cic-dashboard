@@ -4,6 +4,7 @@ El modelo propone; el catálogo decide. Una sugerencia de área vecina solo se m
 palabras aparecen en títulos del CIC, y un resumen solo puede señalar una obra que se le dio.
 """
 
+import re
 from dataclasses import dataclass
 
 import text
@@ -81,41 +82,47 @@ def neighbor_areas(idea: str, missing: list[str], corpus: Corpus) -> list[Sugges
 
 SUMMARY_INSTRUCTIONS = """\
 Explicas a un estudiante por qué una persona asesora del CIC podría encajar con su idea de \
-tesis, usando solo la lista de sus obras que se te da.
+tesis, usando solo la lista numerada de sus obras que se te da.
 Responde solo un objeto JSON con esta forma:
-{"resumen": "2 o 3 oraciones en español, dirigidas al estudiante", \
-"obra": "el título exacto, copiado de la lista, que más se relaciona con la idea"}
-No inventes obras, cargos, fechas ni datos que no estén en los títulos. Si la relación es \
-parcial, dilo."""
-MAX_SUMMARY_CHARS = 600
+{"resumen": "3 a 5 oraciones en español, dirigidas al estudiante; cita las obras que apoyan \
+cada afirmación con su número entre corchetes, como [1] o [2][3]", \
+"obra": el número de la obra que más se relaciona con la idea}
+No copies los títulos completos: cítalos por su número. No inventes obras, cargos, fechas ni \
+datos que no estén en los títulos. Si la relación es parcial, dilo."""
+MAX_SUMMARY_CHARS = 900
+CITATION = re.compile(r"\[(\d+)\]")
 
 
 @dataclass(frozen=True)
 class Summary:
-    """Por qué una persona encaja con la idea, y la obra que mejor lo muestra."""
+    """Por qué una persona encaja con la idea, citando sus obras por número (1 = la primera).
+
+    `work` es el número de la obra que mejor lo muestra.
+    """
 
     text: str
-    work: str
+    work: int
 
 
 def advisor_summary(idea: str, person: str, works: list[str]) -> Summary | None:
-    """Un resumen breve de por qué `person` encaja con la idea, a partir de `works`.
+    """Un resumen de por qué `person` encaja con la idea, citando `works` por número.
 
-    `works` son títulos tal como se le muestran al visitante ("Tesis · título"). La obra
-    elegida debe ser una de ellas; si no, o si la respuesta tiene otra forma, None. Lanza
+    `works` son títulos tal como se le muestran al visitante ("Tesis · título (año)"), y se
+    numeran desde 1. El resumen debe citar al menos una obra, y toda cita y la obra elegida
+    deben ser números de la lista; si no, o si la respuesta tiene otra forma, None. Lanza
     dashscope_client.ChatError si el modelo no responde.
     """
     if not works:
         return None
-    listed = "\n".join(f"- {work}" for work in works)
+    listed = "\n".join(f"[{number}] {work}" for number, work in enumerate(works, start=1))
     answer = chat_json(SUMMARY_INSTRUCTIONS, f"Idea: {idea}\nPersona: {person}\nObras:\n{listed}")
     summary, chosen = answer.get("resumen"), answer.get("obra")
-    if not isinstance(summary, str) or not isinstance(chosen, str):
+    # bool es un int en Python: true no es una obra.
+    if not isinstance(summary, str) or type(chosen) is not int:
         return None
-    summary, chosen = summary.strip(), chosen.strip()
-    if not summary or len(summary) > MAX_SUMMARY_CHARS:
+    summary = summary.strip()
+    cited = {int(number) for number in CITATION.findall(summary)}
+    valid = set(range(1, len(works) + 1))
+    if not summary or len(summary) > MAX_SUMMARY_CHARS or not cited or not cited <= valid:
         return None
-    # La obra se reconoce con o sin su fuente ("Tesis · "); otra cualquiera, se descarta.
-    by_title = {work.split(" · ", 1)[-1]: work for work in works}
-    work = chosen if chosen in works else by_title.get(chosen)
-    return Summary(summary, work) if work else None
+    return Summary(summary, chosen) if chosen in valid else None

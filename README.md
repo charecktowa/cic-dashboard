@@ -112,7 +112,7 @@ cuando el visitante las pide: sugerir áreas cercanas cuando una palabra no tien
 el catálogo, y resumir por qué una persona encaja al abrir su perfil desde «Encuentra tu lab».
 Cada una cuesta unos $0.0001, cuenta en los mismos topes y se verifica contra el catálogo
 (`idea_assistant.py`): una sugerencia necesita un par de palabras con títulos, y el resumen
-solo puede señalar una de las obras que recibió.
+solo puede citar, por número, las obras que recibió.
 
 ## 1b. Métricas y publicaciones de OpenAlex (opcional)
 

@@ -982,8 +982,7 @@ def summary_chat(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     def chat_json(instructions: str, prompt: str) -> dict:
         asked.append(prompt)
-        first = next(line[2:] for line in prompt.splitlines() if line.startswith("- "))
-        return {"resumen": "Trabaja temas cercanos a tu idea.", "obra": first}
+        return {"resumen": "Trabaja temas cercanos a tu idea [1].", "obra": 1}
 
     monkeypatch.setattr(idea_assistant, "chat_json", chat_json)
     return asked
@@ -1007,10 +1006,13 @@ def test_profile_from_the_finder_explains_the_fit(
     open_first_profile(app)
     assert any("Por qué podría encajar" in m.value for m in app.markdown)
     shown = [t.value for t in app.text]
-    assert "Trabaja temas cercanos a tu idea." in shown
-    # La obra seleccionada es una de las obras afines que se le enviaron al chat.
+    assert "Trabaja temas cercanos a tu idea [1]." in shown
+    # La obra seleccionada y la lista citada usan los mismos números que recibió el chat.
     ((prompt),) = summary_chat
-    assert any(f"- {text}" in prompt for text in shown if " · " in text)
+    first = next(line for line in prompt.splitlines() if line.startswith("[1] "))
+    assert first in shown
+    cited = next(text for text in shown if text.startswith("[1] ") and "\n" in text)
+    assert all(line in prompt for line in cited.splitlines())
     assert any("generado por IA" in c.value for c in app.caption)
     # Volver a abrirlo no llama otra vez al chat.
     open_first_profile(app)

@@ -79,28 +79,34 @@ def test_neighbor_areas_offer_at_most_three(monkeypatch: pytest.MonkeyPatch) -> 
     assert len(idea_assistant.neighbor_areas("idea", ["odontologia"], CORPUS)) == 3
 
 
-WORKS = ["Tesis · Segmentación de radiografías", "Artículo · Clasificación de imágenes médicas"]
+WORKS = ["Tesis · Segmentación de radiografías", "Artículo · Clasificación de imágenes (2024)"]
 
 
-@pytest.mark.parametrize("chosen", [WORKS[1], "Clasificación de imágenes médicas"])
-def test_advisor_summary_points_to_one_of_the_given_works(
-    monkeypatch: pytest.MonkeyPatch, chosen: str
-) -> None:
-    asked = answering(monkeypatch, {"resumen": "Trabaja imágenes médicas.", "obra": chosen})
+def test_advisor_summary_cites_the_given_works_by_number(monkeypatch: pytest.MonkeyPatch) -> None:
+    text = "Trabaja imágenes médicas [2] y dirigió una tesis cercana [1]."
+    asked = answering(monkeypatch, {"resumen": text, "obra": 2})
     summary = idea_assistant.advisor_summary("diagnóstico dental", "Persona 1", WORKS)
-    assert summary == idea_assistant.Summary("Trabaja imágenes médicas.", WORKS[1])
-    ((_, prompt),) = asked
-    assert "diagnóstico dental" in prompt and all(work in prompt for work in WORKS)
+    assert summary == idea_assistant.Summary(text, 2)
+    ((instructions, prompt),) = asked
+    # Las obras van numeradas desde 1, en el orden en que se muestran.
+    assert "[1] Tesis · Segmentación de radiografías" in prompt
+    assert "[2] Artículo · Clasificación de imágenes (2024)" in prompt
+    assert "3 a 5 oraciones" in instructions
 
 
 @pytest.mark.parametrize(
     "answer",
     [
-        # Una obra inventada: el resumen no se muestra.
-        {"resumen": "Trabaja imágenes.", "obra": "Detección de caries con IA"},
-        {"resumen": "", "obra": WORKS[0]},
-        {"resumen": "x" * 601, "obra": WORKS[0]},
-        {"resumen": ["Trabaja"], "obra": WORKS[0]},
+        # Cita una obra que no está en la lista.
+        {"resumen": "Trabaja imágenes [3].", "obra": 1},
+        # No cita ninguna.
+        {"resumen": "Trabaja imágenes médicas.", "obra": 1},
+        # La obra elegida no existe, o no es un número.
+        {"resumen": "Trabaja imágenes [1].", "obra": 5},
+        {"resumen": "Trabaja imágenes [1].", "obra": "1"},
+        {"resumen": "Trabaja imágenes [1].", "obra": True},
+        {"resumen": "", "obra": 1},
+        {"resumen": "x [1] " * 200, "obra": 1},
         {},
     ],
 )
