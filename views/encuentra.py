@@ -6,7 +6,7 @@ import streamlit as st
 
 import text
 from advisor import profile_dialog
-from common import LABELS, TEAL_SCALE, explain, footer, lab_colors, load, load_optional, match, show
+from common import LABELS, TEAL_SCALE, explain, footer, lab_colors, load, load_shared, match, show
 from dashscope_client import (
     MAX_QUERY_CHARS,
     MAX_RERANK_DOCUMENTS,
@@ -18,6 +18,7 @@ from dashscope_client import (
 )
 from search_limits import SearchLimiter, client_key
 from semantic_search import (
+    EVIDENCE_LIMIT,
     apply_rerank,
     hybrid_rank_titles,
     lexical_variants,
@@ -46,6 +47,36 @@ def cached_query_embedding(query: str) -> list[float]:
 def cached_title_rerank(query: str, titles: tuple[str, ...]) -> list[tuple[int, float]]:
     """Evita repetir el reranking cuando Streamlit vuelve a ejecutar la página."""
     return rerank_titles(query, titles)
+
+
+def title_index() -> pl.DataFrame:
+    """El índice semántico compartido entre sesiones (load_shared no lo copia)."""
+    shared = load_shared("title_embeddings")
+    if shared is None:
+        raise ValueError("Falta el índice semántico")
+    return shared[0]
+
+
+@st.cache_data(ttl=3600, max_entries=128, show_spinner=False)
+def cached_variants(query: str, version: int) -> dict[str, list[str]]:
+    """Variantes léxicas de la idea; `version` invalida la caché si cambia el índice."""
+    titles = (
+        title_index()
+        .select("title_id", "title")
+        .unique(subset="title_id", keep="first", maintain_order=True)["title"]
+        .to_list()
+    )
+    return lexical_variants(query, titles)
+
+
+@st.cache_data(ttl=3600, max_entries=128, show_spinner=False)
+def cached_ranking(query: str, version: int) -> pl.DataFrame:
+    """Los títulos que pueden respaldar una recomendación, ya ordenados por la búsqueda híbrida.
+
+    Se calcula una vez por idea: abrir un perfil o cambiar de pestaña no lo repite.
+    """
+    ranked = hybrid_rank_titles(title_index(), query, cached_query_embedding(query))
+    return ranked.head(max(EVIDENCE_LIMIT, MAX_RERANK_DOCUMENTS))
 
 
 @st.cache_resource
@@ -127,17 +158,9 @@ if idea.strip() != query:
 term_counts = dict(load("term_df").iter_rows())
 recognized = [term for term in text.terms(query) if term in term_counts]
 ignored = [term for term in text.terms(query) if " " not in term and term not in recognized]
-index = load_optional("title_embeddings")
-variants = (
-    lexical_variants(
-        query,
-        index.select("title_id", "title")
-        .unique(subset="title_id", keep="first", maintain_order=True)["title"]
-        .to_list(),
-    )
-    if index is not None
-    else {}
-)
+shared = load_shared("title_embeddings")
+index, version = shared if shared is not None else (None, 0)
+variants = cached_variants(query, version) if index is not None else {}
 semantic = False
 limit_reason = st.session_state.get("limit_reason")
 
@@ -152,8 +175,7 @@ elif index is not None and is_configured():
     try:
         validate_index(index)
         with st.spinner("Buscando títulos relacionados…"):
-            query_vector = cached_query_embedding(query)
-            ranked = hybrid_rank_titles(index, query, query_vector)
+            ranked = cached_ranking(query, version)
             candidate_titles = tuple(ranked.head(MAX_RERANK_DOCUMENTS)["title"].to_list())
             try:
                 rerank_results = cached_title_rerank(query, candidate_titles)

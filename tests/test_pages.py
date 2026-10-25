@@ -774,3 +774,51 @@ def test_finder_falls_back_to_terms_past_the_limit(
     assert "Laboratorios afines" in [s.value for s in app.subheader]
     # Pasado el tope no sale ninguna llamada cobrada.
     assert semantic_finder == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_opening_a_profile_does_not_repeat_the_search(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import semantic_search
+
+    rankings: list[str] = []
+    original = semantic_search.hybrid_rank_titles
+
+    def counted(index: pl.DataFrame, query: str, vector: list[float]) -> pl.DataFrame:
+        rankings.append(query)
+        return original(index, query, vector)
+
+    monkeypatch.setattr(semantic_search, "hybrid_rank_titles", counted)
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    opener = next(b for b in app.button if str(b.key).startswith("open-"))
+    opener.click().run()
+    assert not app.exception, app.exception
+    assert rankings == ["robots móviles que aprenden a caminar"]
+
+
+def test_load_shared_reads_once_per_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    import common
+
+    def shared() -> tuple[pl.DataFrame, int]:
+        loaded = common.load_shared("grande")
+        assert loaded is not None
+        return loaded
+
+    monkeypatch.setattr(common, "DATA", tmp_path)
+    assert common.load_shared("grande") is None
+    table = tmp_path / "grande.parquet"
+    pl.DataFrame({"v": [1]}).write_parquet(table)
+    first, version = shared()
+    # La misma tabla, sin copiarla en cada ejecución.
+    assert shared()[0] is first
+    pl.DataFrame({"v": [2]}).write_parquet(table)
+    stat = table.stat()
+    os.utime(table, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    newer, newer_version = shared()
+    assert newer["v"].to_list() == [2]
+    assert newer_version != version
