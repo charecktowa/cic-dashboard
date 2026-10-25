@@ -116,6 +116,7 @@ def search_limiter() -> SearchLimiter:
     return SearchLimiter()
 
 
+UNAVAILABLE = "No pudimos consultar al modelo esta vez"
 LIMIT_MESSAGES = {
     "visitante": "Hiciste muchas búsquedas en la última hora",
     "hora": "El tablero alcanzó su límite de búsquedas por hora",
@@ -138,6 +139,13 @@ def use_example() -> None:
     if picked:
         set_idea(EXAMPLES[picked])
         st.session_state.pop("results", None)
+
+
+@dataclass(frozen=True)
+class Failure:
+    """Un resumen que no se pudo pedir (un tope o una falla del chat): se puede reintentar."""
+
+    message: str
 
 
 @dataclass(frozen=True)
@@ -244,19 +252,26 @@ def cached_neighbors(query: str, uncovered: tuple[str, ...], version: int) -> li
 
 
 def suggest_neighbors(results: Results) -> None:
-    """Pide al chat las áreas vecinas, si caben en los topes, y las guarda en la sesión."""
+    """Pide al chat las áreas vecinas, si caben en los topes, y las guarda en la sesión.
+
+    Solo una respuesta del modelo queda guardada. Un tope o una falla quedan como aviso, y
+    el botón sigue ahí para reintentar.
+    """
+    st.session_state.pop("neighbors_failure", None)
     version = index_version()
     limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
     if limit or version is None:
-        st.session_state["neighbors"] = (results.query, LIMIT_MESSAGES.get(limit or "", ""), [])
+        message = f"{LIMIT_MESSAGES[limit]}; intenta más tarde" if limit else UNAVAILABLE
+        st.session_state["neighbors_failure"] = (results.query, message)
         return
     try:
         # Sin spinner: un callback dibuja arriba de la página, no junto al botón. Sin turno
         # del semáforo: el chat solo espera la red, y no debe hacer esperar a las búsquedas.
         found = cached_neighbors(results.query, results.uncovered, version)
     except ChatError:
-        found = []
-    st.session_state["neighbors"] = (results.query, "", found)
+        st.session_state["neighbors_failure"] = (results.query, UNAVAILABLE)
+        return
+    st.session_state["neighbors"] = (results.query, found)
 
 
 @st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
@@ -265,19 +280,25 @@ def cached_summary(query: str, person: str, works: tuple[str, ...]) -> Summary |
     return advisor_summary(query, person, list(works))
 
 
+def forget_summary(query: str, person: str) -> None:
+    """Borra un resumen fallido de la sesión: la próxima vez se pide de nuevo."""
+    st.session_state["summaries"].pop((query, person), None)
+
+
 def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
     """Por qué esta persona encaja con la idea. Solo aparece al abrir su perfil desde aquí.
 
     Se guarda en la sesión: interactuar dentro del diálogo no vuelve a llamar al chat ni a
-    contar en los topes.
+    contar en los topes. Un tope o una falla también se guardan, como Failure, pero con un
+    botón para reintentar.
     """
-    stored: dict[tuple[str, str], Summary | str | None] = st.session_state.setdefault(
+    stored: dict[tuple[str, str], Summary | Failure | None] = st.session_state.setdefault(
         "summaries", {}
     )
     if (query, person) not in stored:
         limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
         if limit:
-            stored[query, person] = LIMIT_MESSAGES[limit]
+            stored[query, person] = Failure(f"{LIMIT_MESSAGES[limit]}; intenta más tarde")
         else:
             try:
                 # Sin turno del semáforo: el chat solo espera la red (de 3 a 5 s, o hasta el
@@ -285,7 +306,7 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
                 with st.spinner("Resumiendo por qué encaja con tu idea…"):
                     stored[query, person] = cached_summary(query, person, works)
             except ChatError:
-                stored[query, person] = None
+                stored[query, person] = Failure(UNAVAILABLE)
     summary = stored[query, person]
     with st.container(border=True):
         st.markdown("**Por qué podría encajar con tu idea**")
@@ -301,10 +322,17 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
                 "número entre corchetes es una de las obras de la lista. Puede equivocarse: "
                 "revisa sus trabajos antes de escribirle."
             )
-        elif isinstance(summary, str):
-            st.caption(f"{summary}; el resumen con IA no está disponible por ahora.")
+        elif isinstance(summary, Failure):
+            st.caption(f"{summary.message}.")
+            st.button(
+                "Reintentar el resumen",
+                icon=":material/refresh:",
+                on_click=forget_summary,
+                args=(query, person),
+            )
         else:
-            st.caption("No pudimos generar el resumen esta vez.")
+            # El modelo respondió, pero sin un resumen que cite sus obras: no se reintenta.
+            st.caption("No pudimos generar un resumen confiable para esta persona.")
 
 
 def search_neighbor(query: str) -> None:
@@ -378,16 +406,19 @@ for kind, message, icon in results.notices:
 
 # El chat solo se llama si el visitante lo pide: sin clic, no hay costo.
 if results.semantic and results.uncovered:
-    asked, limit_message, neighbors = st.session_state.get("neighbors", ("", "", []))
+    asked, neighbors = st.session_state.get("neighbors", ("", []))
     if asked != query:
+        failed, message = st.session_state.get("neighbors_failure", ("", ""))
+        if failed == query:
+            st.info(f"{message}.", icon=":material/hourglass_top:")
         st.button(
-            "Sugerir áreas cercanas que sí están en el catálogo (IA)",
-            icon=":material/auto_awesome:",
+            "Reintentar"
+            if failed == query
+            else "Sugerir áreas cercanas que sí están en el catálogo (IA)",
+            icon=":material/refresh:" if failed == query else ":material/auto_awesome:",
             on_click=suggest_neighbors,
             args=(results,),
         )
-    elif limit_message:
-        st.info(f"{limit_message}; intenta más tarde.", icon=":material/hourglass_top:")
     elif not neighbors:
         st.info(
             "No encontramos un área cercana con trabajos en el catálogo. Prueba con otras "

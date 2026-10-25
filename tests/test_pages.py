@@ -966,11 +966,41 @@ def test_neighbor_areas_count_toward_the_limits(
 
     app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
     # La búsqueda pasó; para cuando pide sugerencias, el sitio ya llegó a su tope.
-    monkeypatch.setattr(SearchLimiter, "allow", lambda self, client: "hora")
-    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    with monkeypatch.context() as limited:
+        limited.setattr(SearchLimiter, "allow", lambda self, client: "hora")
+        next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
     assert not app.exception, app.exception
     assert neighbor_chat == []
     assert any("límite de búsquedas por hora" in i.value for i in app.info)
+    # El tope no queda como respuesta: pasada la hora, el visitante puede reintentar.
+    next(b for b in app.button if b.label == "Reintentar").click().run()
+    assert len(neighbor_chat) == 1
+    assert [b.label for b in app.button if str(b.key).startswith("neighbor-")]
+
+
+@pytest.mark.usefixtures("tables")
+def test_a_failed_neighbor_request_can_be_retried(
+    semantic_finder: list[str], neighbor_chat: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import streamlit as st
+
+    import idea_assistant
+    from dashscope_client import ChatError
+
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
+    working = idea_assistant.chat_json
+
+    def down(instructions: str, prompt: str) -> dict:
+        raise ChatError("sin red")
+
+    monkeypatch.setattr(idea_assistant, "chat_json", down)
+    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    assert not app.exception, app.exception
+    assert any("No pudimos consultar al modelo" in i.value for i in app.info)
+    monkeypatch.setattr(idea_assistant, "chat_json", working)
+    next(b for b in app.button if b.label == "Reintentar").click().run()
+    assert [b.label for b in app.button if str(b.key).startswith("neighbor-")]
 
 
 @pytest.fixture
@@ -1017,6 +1047,34 @@ def test_profile_from_the_finder_explains_the_fit(
     # Volver a abrirlo no llama otra vez al chat.
     open_first_profile(app)
     assert len(summary_chat) == 1
+
+
+@pytest.mark.usefixtures("tables")
+def test_a_failed_summary_can_be_retried(
+    semantic_finder: list[str], summary_chat: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import streamlit as st
+
+    import idea_assistant
+    from dashscope_client import ChatError
+
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    working = idea_assistant.chat_json
+
+    def down(instructions: str, prompt: str) -> dict:
+        raise ChatError("sin red")
+
+    monkeypatch.setattr(idea_assistant, "chat_json", down)
+    open_first_profile(app)
+    assert any("No pudimos consultar al modelo" in c.value for c in app.caption)
+    monkeypatch.setattr(idea_assistant, "chat_json", working)
+    next(b for b in app.button if b.label == "Reintentar el resumen").click().run()
+    assert not app.exception, app.exception
+    # En el navegador el diálogo sigue abierto; AppTest corre la página entera y lo cierra.
+    open_first_profile(app)
+    assert len(summary_chat) == 1
+    assert "Trabaja temas cercanos a tu idea [1]." in [t.value for t in app.text]
 
 
 @pytest.mark.usefixtures("tables")
