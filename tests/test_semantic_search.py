@@ -108,8 +108,14 @@ def test_one_work_backs_one_person_the_most_direct_role() -> None:
 def test_one_work_backs_one_lab() -> None:
     index = prepare_index(shared_work_frame())
     labs = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="lab", limit=3)
-    # Cada obra metió a un laboratorio distinto como candidato.
-    assert set(labs["lab"]) == {"Responsable", "Colaboradora", "Otro colaborador"}
+    # El proyecto compartido mete a un solo laboratorio, el de su responsable técnico; los
+    # otros dos entran cada uno por su propia tesis.
+    assert dict(labs.select("lab", "evidence_title").iter_rows()) == {
+        "Responsable": SHARED,
+        "Colaboradora": "Segmentación de radiografías",
+        "Otro colaborador": "Clasificación de imágenes",
+    }
+    assert labs["evidence_title"].to_list().count(SHARED) == 1
     assert labs["affinity"].to_list()[0] == 100
     assert labs["affinity"].to_list()[1] < 100
 
