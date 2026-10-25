@@ -279,5 +279,6 @@ def chat_json(instructions: str, prompt: str) -> dict[str, Any]:
         failure("chat/completions", "El chat no devolvió JSON")
         raise ChatError("El chat no devolvió JSON") from None
     if not isinstance(answer, dict):
+        failure("chat/completions", "El chat no devolvió un objeto JSON")
         raise ChatError("El chat no devolvió un objeto JSON")
     return answer

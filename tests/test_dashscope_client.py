@@ -336,10 +336,17 @@ def test_chat_json_asks_flash_for_json_without_thinking(api: FakePost) -> None:
     "reply",
     [chat_reply("no es JSON"), chat_reply("[1, 2]"), {"choices": []}, {}],
 )
-def test_chat_json_rejects_anything_but_a_json_object(api: FakePost, reply: dict[str, Any]) -> None:
+def test_chat_json_rejects_anything_but_a_json_object(
+    api: FakePost, reply: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
     api.reply = reply
-    with pytest.raises(dashscope_client.ChatError):
+    with (
+        pytest.raises(dashscope_client.ChatError),
+        caplog.at_level(logging.WARNING, logger="dashscope_client"),
+    ):
         dashscope_client.chat_json("Responde en JSON.", "Idea")
+    # Cada rechazo queda en el log: un modelo que responde mal no falla en silencio.
+    assert "El chat no devolvió" in caplog.text
 
 
 def test_chat_json_turns_api_errors_into_chat_errors(api: FakePost) -> None:
