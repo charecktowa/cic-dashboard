@@ -1,5 +1,6 @@
 """Recupera títulos por búsqueda híbrida y agrupa evidencia por asesor o laboratorio."""
 
+import datetime
 import math
 from collections import Counter
 from dataclasses import dataclass
@@ -65,6 +66,8 @@ class TitleIndex:
     titles: pl.DataFrame
     unit_vectors: np.ndarray
     corpus: Corpus
+    # La instantánea con la que se construyó; None en un índice anterior a esta columna.
+    snapshot: datetime.date | None = None
 
 
 def prepare_index(index: pl.DataFrame) -> TitleIndex:
@@ -88,6 +91,7 @@ def prepare_index(index: pl.DataFrame) -> TitleIndex:
         titles=titles,
         unit_vectors=matrix / norms,
         corpus=Corpus.of(titles["title"].to_list()),
+        snapshot=index["snapshot"][0] if "snapshot" in index.columns and index.height else None,
     )
 
 

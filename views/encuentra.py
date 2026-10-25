@@ -20,6 +20,7 @@ from common import (
     load,
     match,
     show,
+    snapshot,
 )
 from dashscope_client import (
     MAX_QUERY_CHARS,
@@ -169,6 +170,14 @@ def run_search(query: str) -> Results:
     try:
         with st.spinner("Buscando títulos relacionados…"), search_slots():
             index = title_index(version)
+            if index.snapshot != snapshot():
+                # Vínculos de otra instantánea: pueden nombrar títulos o personas que ya no
+                # están. Hasta reconstruirlo, la búsqueda por términos.
+                info = (
+                    "El índice semántico es de otra instantánea de datos; usamos la búsqueda "
+                    "por términos hasta reconstruirlo."
+                )
+                return term_results(query, [("info", info, ":material/update:")])
             variants = cached_variants(query, version)
             ranked = cached_ranking(query, version)
             candidate_titles = tuple(ranked.head(MAX_RERANK_DOCUMENTS)["title"].to_list())

@@ -733,6 +733,7 @@ def semantic_finder(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
         embedding=pl.Series([[1.0, 0.0, 0.0, 0.0]] * documents.height, dtype=pl.List(pl.Float32)),
         model=pl.lit(dashscope_client.MODEL),
         dimension=pl.lit(dashscope_client.DIMENSION, dtype=pl.Int16),
+        snapshot=pl.lit(common.snapshot()),
     )
     path = common.DATA / "title_embeddings.parquet"
     index.write_parquet(path)
@@ -826,3 +827,19 @@ def test_reruns_never_call_the_provider_again(semantic_finder: list[str]) -> Non
     opener.click().run()
     assert not app.exception, app.exception
     assert semantic_finder == sent
+
+
+@pytest.mark.usefixtures("tables")
+def test_an_index_from_another_snapshot_falls_back_to_terms(semantic_finder: list[str]) -> None:
+    import datetime
+
+    import common
+
+    path = common.DATA / "title_embeddings.parquet"
+    stale = pl.read_parquet(path).with_columns(snapshot=pl.lit(datetime.date(2000, 1, 1)))
+    stale.write_parquet(path)
+    app = search_finder(open_page("encuentra"), "visión por computadora con redes neuronales")
+    assert not app.exception, app.exception
+    assert any("otra instantánea" in i.value for i in app.info)
+    assert "Laboratorios afines" in [s.value for s in app.subheader]
+    assert semantic_finder == []

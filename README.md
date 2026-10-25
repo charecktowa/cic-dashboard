@@ -85,7 +85,9 @@ Director 2; no se envían nombres del comité ni datos de estudiantes. Se excluy
 de OpenAlex en esta primera versión porque el Parquet conserva una selección por citas.
 `export.py` no borra `data/title_embeddings.parquet`. Después de cada exportación vuelve a
 correr `build_title_index.py`: reutiliza los vectores ya calculados, solo paga los títulos
-nuevos y actualiza los vínculos con asesores y laboratorios. El archivo se copia al VPS con
+nuevos y actualiza los vínculos con asesores y laboratorios. Si lo olvidas, la página lo nota: el
+índice guarda la fecha de su instantánea y, si no coincide con la de `data/`, usa la búsqueda
+por términos hasta que lo reconstruyas. El archivo se copia al VPS con
 los demás datos y no se versiona.
 
 Al presionar **Buscar afinidades**, la idea escrita por el visitante se envía a Alibaba Cloud

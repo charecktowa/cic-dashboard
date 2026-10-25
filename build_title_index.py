@@ -80,6 +80,8 @@ def build_title_index(
         ),
         model=pl.lit(MODEL),
         dimension=pl.lit(DIMENSION, dtype=pl.Int16),
+        # La instantánea de la que salieron los vínculos: la app no usa un índice de otra.
+        snapshot=pl.lit(pl.read_parquet(data_dir / "meta.parquet")["snapshot"][0]),
     ).sort(["title_id", "source", "year", "level", "person", "role"], nulls_last=True)
 
     data_dir.mkdir(parents=True, exist_ok=True)

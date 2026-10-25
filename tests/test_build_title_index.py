@@ -25,6 +25,8 @@ def test_build_title_index_embeds_unique_titles_and_keeps_relationships(
     assert index["embedding"].dtype == pl.List(pl.Float32)
     assert index["model"].unique().to_list() == [MODEL]
     assert index["dimension"].unique().to_list() == [DIMENSION]
+    meta = pl.read_parquet(data_dir / "meta.parquet")
+    assert index["snapshot"].unique().to_list() == meta["snapshot"].to_list()
     assert (
         index.filter(pl.col("source") == "Tesis")["role"]
         .drop_nulls()
@@ -66,6 +68,6 @@ def _copy_tables(tmp_path: Path) -> Path:
     import os
 
     source = Path(os.environ["CIC_DATA_DIR"])
-    for name in ("thesis_titles", "output_titles", "project_titles", "people"):
+    for name in ("thesis_titles", "output_titles", "project_titles", "people", "meta"):
         (tmp_path / f"{name}.parquet").write_bytes((source / f"{name}.parquet").read_bytes())
     return tmp_path
