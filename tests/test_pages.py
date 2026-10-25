@@ -944,10 +944,10 @@ def test_neighbor_areas_are_opt_in_and_launch_a_search(
     sent = len(semantic_finder)
     offered[0].click().run()
     assert not app.exception, app.exception
-    # La búsqueda nueva usa la sugerencia y sí llama a la API.
     # La caja de la idea muestra la sugerencia: es una caja nueva con ese texto.
     assert app.text_area[0].value == "deep learning y redes neuronales"
-    assert len(semantic_finder) > sent
+    # Y la búsqueda nueva es la de la sugerencia, no la idea anterior.
+    assert "embedding: deep learning y redes neuronales" in semantic_finder[sent:]
 
 
 @pytest.mark.usefixtures("tables")
