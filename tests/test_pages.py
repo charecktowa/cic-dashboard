@@ -804,3 +804,25 @@ def test_count_label_agrees_with_the_number(n: int, label: str) -> None:
     import common
 
     assert common.count_label(n, "título") == label
+
+
+@pytest.mark.usefixtures("tables")
+def test_finder_warns_about_the_provider_before_any_search(semantic_finder: list[str]) -> None:
+    app = open_page("encuentra")
+    assert any("se envían a Alibaba Cloud" in c.value for c in app.caption)
+    # Abrir la página no manda nada.
+    assert semantic_finder == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_reruns_never_call_the_provider_again(semantic_finder: list[str]) -> None:
+    import streamlit as st
+
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    sent = list(semantic_finder)
+    # Aunque la caché expire, abrir un perfil reutiliza los resultados de la sesión.
+    st.cache_data.clear()
+    opener = next(b for b in app.button if str(b.key).startswith("open-"))
+    opener.click().run()
+    assert not app.exception, app.exception
+    assert semantic_finder == sent
