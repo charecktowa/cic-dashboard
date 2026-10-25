@@ -387,3 +387,27 @@ def test_a_work_listed_twice_counts_once() -> None:
     # Y no infla el orden: Repetida vale 1.0 + 0.9/2 = 1.45 y Rival 0.995 + 0.97/2 = 1.48.
     # Si las copias sumaran, Repetida valdría 1.74 y quedaría arriba.
     assert people["person"].to_list() == ["Rival", "Repetida"]
+
+
+def test_related_works_show_their_year_when_known() -> None:
+    frame = pl.DataFrame(
+        {
+            "title_id": ["a", "b"],
+            "title": ["Detección de tumores", "Clasificación de imágenes"],
+            "source": ["Artículo", "Tesis"],
+            "person": ["Asesora"] * 2,
+            "lab": ["L"] * 2,
+            "year": [2024, None],
+            "embedding": [[1.0, 0.0], [0.9, 0.436]],
+            "model": ["qwen3.7-text-embedding"] * 2,
+            "dimension": [1024] * 2,
+        },
+        schema_overrides={"year": pl.Int32},
+    )
+    index = prepare_index(frame)
+    person = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person").row(0, named=True)
+    # La tesis no tiene año en el catálogo: va sin paréntesis.
+    assert list(person["related"]) == [
+        "Artículo · Detección de tumores (2024)",
+        "Tesis · Clasificación de imágenes",
+    ]
