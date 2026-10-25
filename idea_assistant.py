@@ -102,10 +102,12 @@ cada afirmación con su número entre corchetes, como [1] o [2][3]", \
 No copies los títulos completos: cítalos por su número. No inventes obras, cargos, fechas ni \
 datos que no estén en los títulos. Si la relación es parcial, dilo."""
 MAX_SUMMARY_CHARS = 900
-# Todo lo que va entre corchetes y lleva un dígito es una cita, y debe ser un solo número:
-# "[2, 99]" o "[1-3]" mostrarían obras que nadie validó.
-CITATION = re.compile(r"\[([^\]]*\d[^\]]*)\]")
-NUMBER = re.compile(r"[0-9]+")
+# Cada grupo entre corchetes que lleva un dígito es una cita, y debe ser un solo número:
+# "[2, 99]" o "[1-3]" mostrarían obras que nadie validó. Se buscan los grupos y luego el
+# dígito, sin una regex que pueda retroceder de más.
+BRACKETS = re.compile(r"\[([^\]]*)\]")
+DIGIT = re.compile(r"\d")
+NUMBER = re.compile(r"\d+")
 
 
 @dataclass(frozen=True)
@@ -136,7 +138,7 @@ def advisor_summary(idea: str, person: str, works: list[str]) -> Summary | None:
     if not isinstance(summary, str) or type(chosen) is not int:
         return None
     summary = summary.strip()
-    citations = CITATION.findall(summary)
+    citations = [group for group in BRACKETS.findall(summary) if DIGIT.search(group)]
     if not all(NUMBER.fullmatch(citation) for citation in citations):
         return None
     cited = {int(citation) for citation in citations}
