@@ -107,5 +107,5 @@ def collect_title_documents(data_dir: Path = DATA) -> pl.DataFrame:
     return (
         pl.DataFrame(rows, schema=TITLE_DOCUMENT_SCHEMA)
         .unique()
-        .sort(["title_id", "source", "year", "person", "role"], nulls_last=True)
+        .sort(["title_id", "source", "year", "level", "person", "role"], nulls_last=True)
     )

@@ -48,8 +48,8 @@ def embed_texts(texts: Sequence[str], *, text_type: TextType = "document") -> li
             dimension=DIMENSION,
             instruct=QUERY_INSTRUCTION if text_type == "query" else None,
         )
-    except Exception as error:
-        raise EmbeddingError("No se pudo conectar con el servicio de embeddings") from error
+    except Exception:
+        raise EmbeddingError("No se pudo conectar con el servicio de embeddings") from None
 
     if response.status_code != 200:
         code = getattr(response, "code", None) or "sin código"
