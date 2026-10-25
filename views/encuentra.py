@@ -118,7 +118,8 @@ def search_limiter() -> SearchLimiter:
 
 UNAVAILABLE = "No pudimos consultar al modelo esta vez"
 LIMIT_MESSAGES = {
-    "visitante": "Hiciste muchas búsquedas en la última hora",
+    # El tope es por IP: puede alcanzarlo un salón entero, no solo quien lo ve.
+    "visitante": "Hubo muchas búsquedas desde tu red en la última hora",
     "hora": "El tablero alcanzó su límite de búsquedas por hora",
     "día": "El tablero alcanzó su límite de búsquedas del día",
 }

@@ -99,9 +99,10 @@ Si falta la llave o el índice, o si falla el servicio, «Encuentra tu lab» usa
 por términos. No se deben introducir datos personales o confidenciales en la idea.
 
 Cada búsqueda semántica se cobra a la llave: unos $0.0007 con una idea corta y hasta $0.0017
-con una de 500 caracteres, casi todo del reranker. `search_limits.py` pone tres topes: 20
-búsquedas por hora por visitante (la IP que reporta Cloudflare), 300 por hora y 2,000 por día
-en todo el sitio. Con ellos el gasto máximo ronda $3.40 al día; pasado un tope, la página usa
+con una de 500 caracteres, casi todo del reranker. `search_limits.py` pone tres topes: 60
+búsquedas por hora por visitante (la IP que reporta Cloudflare, que un salón o el campus
+pueden compartir), 600 por hora y 3,000 por día en todo el sitio; abrir un perfil o pedir
+áreas cercanas cuenta como una búsqueda. Con ellos el gasto máximo ronda $5.10 al día; pasado un tope, la página usa
 la búsqueda por términos. Los contadores viven en memoria: bastan porque la app corre en un
 solo proceso, y se reinician con el contenedor. Configura además una alerta de gasto en la
 consola de Alibaba Cloud.
