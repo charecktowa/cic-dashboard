@@ -414,7 +414,10 @@ la búsqueda local por palabras y pares de palabras.
 
 **Qué significan los resultados.** La afinidad es relativa al resultado mejor posicionado en
 esta búsqueda; no es una probabilidad de éxito ni una evaluación de la calidad del asesor.
-Cada recomendación muestra la obra que más contribuyó a que apareciera.
+Cada recomendación muestra la obra que más contribuyó a que apareciera. Una obra respalda a
+una sola persona y a un solo laboratorio, el de quien la dirige o encabeza, para que un
+proyecto con muchos integrantes no llene la lista; los demás pueden aparecer por otra obra
+suya. Si ningún título menciona una palabra de tu idea, la página lo dice.
 
 **Limitaciones.** Solo se leen títulos, no resúmenes. Las tesis se vinculan con Director 1 y
 Director 2; los comités no cuentan como experiencia de dirección. Es una herramienta para
