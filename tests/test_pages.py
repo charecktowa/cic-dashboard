@@ -866,7 +866,7 @@ def test_count_label_agrees_with_the_number(n: int, label: str) -> None:
 @pytest.mark.usefixtures("tables")
 def test_finder_warns_about_the_provider_before_any_search(semantic_finder: list[str]) -> None:
     app = open_page("encuentra")
-    assert any("se envían a Alibaba Cloud" in c.value for c in app.caption)
+    assert any("se envía a Alibaba Cloud" in c.value for c in app.caption)
     # Abrir la página no manda nada.
     assert semantic_finder == []
 
