@@ -17,6 +17,7 @@ services:
       - /tmp
     environment:
       HOME: /tmp
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
     cap_drop:
       - ALL
     security_opt:
