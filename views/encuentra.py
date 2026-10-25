@@ -259,19 +259,21 @@ def suggest_neighbors(results: Results) -> None:
     """
     st.session_state.pop("neighbors_failure", None)
     version = index_version()
+    # Con la versión del índice: si el catálogo cambia, la misma idea se pregunta de nuevo.
+    asked = (results.query, version)
     limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
     if limit or version is None:
         message = f"{LIMIT_MESSAGES[limit]}; intenta más tarde" if limit else UNAVAILABLE
-        st.session_state["neighbors_failure"] = (results.query, message)
+        st.session_state["neighbors_failure"] = (asked, message)
         return
     try:
         # Sin spinner: un callback dibuja arriba de la página, no junto al botón. Sin turno
         # del semáforo: el chat solo espera la red, y no debe hacer esperar a las búsquedas.
         found = cached_neighbors(results.query, results.uncovered, version)
     except ChatError:
-        st.session_state["neighbors_failure"] = (results.query, UNAVAILABLE)
+        st.session_state["neighbors_failure"] = (asked, UNAVAILABLE)
         return
-    st.session_state["neighbors"] = (results.query, found)
+    st.session_state["neighbors"] = (asked, found)
 
 
 @st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
@@ -280,9 +282,9 @@ def cached_summary(query: str, person: str, works: tuple[str, ...]) -> Summary |
     return advisor_summary(query, person, list(works))
 
 
-def forget_summary(query: str, person: str) -> None:
+def forget_summary(key: tuple[str, str, int | None]) -> None:
     """Borra un resumen fallido de la sesión: la próxima vez se pide de nuevo."""
-    st.session_state["summaries"].pop((query, person), None)
+    st.session_state["summaries"].pop(key, None)
 
 
 def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
@@ -292,22 +294,24 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
     contar en los topes. Un tope o una falla también se guardan, como Failure, pero con un
     botón para reintentar.
     """
-    stored: dict[tuple[str, str], Summary | Failure | None] = st.session_state.setdefault(
-        "summaries", {}
+    stored: dict[tuple[str, str, int | None], Summary | Failure | None] = (
+        st.session_state.setdefault("summaries", {})
     )
-    if (query, person) not in stored:
+    # Con la versión del índice: si el catálogo cambia, las obras afines también.
+    key = (query, person, index_version())
+    if key not in stored:
         limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
         if limit:
-            stored[query, person] = Failure(f"{LIMIT_MESSAGES[limit]}; intenta más tarde")
+            stored[key] = Failure(f"{LIMIT_MESSAGES[limit]}; intenta más tarde")
         else:
             try:
                 # Sin turno del semáforo: el chat solo espera la red (de 3 a 5 s, o hasta el
                 # tiempo límite) y no debe hacer esperar a las búsquedas semánticas.
                 with st.spinner("Resumiendo por qué encaja con tu idea…"):
-                    stored[query, person] = cached_summary(query, person, works)
+                    stored[key] = cached_summary(query, person, works)
             except ChatError:
-                stored[query, person] = Failure(UNAVAILABLE)
-    summary = stored[query, person]
+                stored[key] = Failure(UNAVAILABLE)
+    summary = stored[key]
     with st.container(border=True):
         st.markdown("**Por qué podría encajar con tu idea**")
         if isinstance(summary, Summary):
@@ -328,7 +332,7 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
                 "Reintentar el resumen",
                 icon=":material/refresh:",
                 on_click=forget_summary,
-                args=(query, person),
+                args=(key,),
             )
         else:
             # El modelo respondió, pero sin un resumen que cite sus obras: no se reintenta.
@@ -406,16 +410,17 @@ for kind, message, icon in results.notices:
 
 # El chat solo se llama si el visitante lo pide: sin clic, no hay costo.
 if results.semantic and results.uncovered:
-    asked, neighbors = st.session_state.get("neighbors", ("", []))
-    if asked != query:
-        failed, message = st.session_state.get("neighbors_failure", ("", ""))
-        if failed == query:
+    current = (query, index_version())
+    asked, neighbors = st.session_state.get("neighbors", ((), []))
+    if asked != current:
+        failed, message = st.session_state.get("neighbors_failure", ((), ""))
+        if failed == current:
             st.info(f"{message}.", icon=":material/hourglass_top:")
         st.button(
             "Reintentar"
-            if failed == query
+            if failed == current
             else "Sugerir áreas cercanas que sí están en el catálogo (IA)",
-            icon=":material/refresh:" if failed == query else ":material/auto_awesome:",
+            icon=":material/refresh:" if failed == current else ":material/auto_awesome:",
             on_click=suggest_neighbors,
             args=(results,),
         )

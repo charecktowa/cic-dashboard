@@ -1077,6 +1077,50 @@ def test_a_failed_summary_can_be_retried(
     assert "Trabaja temas cercanos a tu idea [1]." in [t.value for t in app.text]
 
 
+def touch_index() -> None:
+    """Simula un índice reconstruido: misma ruta, otra fecha de modificación."""
+    import os
+
+    import common
+
+    path = common.DATA / "title_embeddings.parquet"
+    later = path.stat().st_mtime_ns + 1_000_000_000
+    os.utime(path, ns=(later, later))
+
+
+@pytest.mark.usefixtures("tables")
+def test_a_new_index_asks_the_ai_helpers_again(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import streamlit as st
+
+    import idea_assistant
+
+    asked: list[str] = []
+
+    def chat_json(instructions: str, prompt: str) -> dict[str, object]:
+        asked.append(prompt)
+        if "Persona:" in prompt:
+            return {"resumen": "Trabaja temas cercanos [1].", "obra": 1}
+        busqueda = "deep learning y redes neuronales"
+        return {"sugerencias": [{"tema": "Redes neuronales", "busqueda": busqueda}]}
+
+    monkeypatch.setattr(idea_assistant, "chat_json", chat_json)
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
+    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    open_first_profile(app)
+    assert len(asked) == 2
+    # Con otro índice, lo guardado en la sesión ya no vale: las sugerencias y el resumen se
+    # piden otra vez (sin el caché, que guarda la respuesta de cada idea).
+    touch_index()
+    st.cache_data.clear()
+    app.run()
+    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    open_first_profile(app)
+    assert len(asked) == 4
+
+
 @pytest.mark.usefixtures("tables")
 def test_profile_from_the_term_search_has_no_ai_summary(summary_chat: list[str]) -> None:
     app = open_first_profile(search_finder(open_page("encuentra"), "deep learning"))
