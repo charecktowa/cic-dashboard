@@ -132,12 +132,14 @@ def snapshot_files(out: Path) -> dict[str, pl.DataFrame]:
 def test_write_replaces_the_snapshot(tmp_path: Path) -> None:
     openalex = pl.DataFrame({"person": ["Persona 1"]})
     openalex.write_parquet(tmp_path / "openalex_authors.parquet")
+    pl.DataFrame({"title_id": ["a"]}).write_parquet(tmp_path / "title_embeddings.parquet")
     export.write({"meta": pl.DataFrame({"v": [1]}), "stale": pl.DataFrame({"v": [1]})}, tmp_path)
     export.write({"meta": pl.DataFrame({"v": [2]})}, tmp_path)
 
     files = snapshot_files(tmp_path)
-    # La tabla que ya no se exporta se va; la de OpenAlex no es de esta exportación.
-    assert set(files) == {"meta", "openalex_authors"}
+    # La tabla que ya no se exporta se va; las de OpenAlex y el índice de títulos no son de
+    # esta exportación.
+    assert set(files) == {"meta", "openalex_authors", "title_embeddings"}
     assert files["meta"]["v"].to_list() == [2]
     assert not [p for p in tmp_path.iterdir() if p.name.startswith(".staging-")]
 

@@ -83,8 +83,10 @@ La API recibe los títulos públicos únicos del catálogo; el índice local con
 los vínculos a asesores, laboratorios y fuentes. Las tesis se vinculan solo con Director 1 y
 Director 2; no se envían nombres del comité ni datos de estudiantes. Se excluyen los trabajos
 de OpenAlex en esta primera versión porque el Parquet conserva una selección por citas.
-El archivo `data/title_embeddings.parquet` se regenera con los demás datos y se copia al VPS;
-no se versiona.
+`export.py` no borra `data/title_embeddings.parquet`. Después de cada exportación vuelve a
+correr `build_title_index.py`: reutiliza los vectores ya calculados, solo paga los títulos
+nuevos y actualiza los vínculos con asesores y laboratorios. El archivo se copia al VPS con
+los demás datos y no se versiona.
 
 Al presionar **Buscar afinidades**, la idea escrita por el visitante se envía a Alibaba Cloud
 para obtener su vector. BM25 también busca coincidencias literales en el catálogo y Reciprocal
