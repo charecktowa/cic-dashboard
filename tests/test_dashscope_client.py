@@ -114,6 +114,10 @@ def test_embed_texts_turns_api_errors_into_embedding_errors(api: FakePost) -> No
         embeddings([[0.1, 0.2]]),
         embeddings([[float("nan")] * dashscope_client.DIMENSION]),
         {"output": {"embeddings": ["no es un objeto"]}},
+        {"output": {"embeddings": [{"text_index": None, "embedding": vector()}]}},
+        {"output": {"embeddings": [{"text_index": "0", "embedding": vector()}]}},
+        {"output": {"embeddings": [{"text_index": True, "embedding": vector()}]}},
+        {"output": {"embeddings": [{"text_index": 3, "embedding": vector()}]}},
         {"output": "sin vectores"},
         {},
     ],
@@ -272,3 +276,16 @@ def test_post_gives_up_after_the_last_retry(monkeypatch: pytest.MonkeyPatch) -> 
     with pytest.raises(dashscope_client.ApiError, match="HTTP 503"):
         dashscope_client.post("services/x", {}, KEY, retries=2)
     assert waits == [1, 2]
+
+
+def test_embed_texts_rejects_repeated_indices_instead_of_crossing_vectors(api: FakePost) -> None:
+    api.reply = {
+        "output": {
+            "embeddings": [
+                {"text_index": 0, "embedding": vector(0.2)},
+                {"text_index": 0, "embedding": vector(0.1)},
+            ]
+        }
+    }
+    with pytest.raises(dashscope_client.EmbeddingError, match="índice válido"):
+        dashscope_client.embed_texts(["a", "b"])

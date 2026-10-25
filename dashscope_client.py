@@ -151,8 +151,16 @@ def embed_texts(texts: Sequence[str], *, text_type: TextType = "document") -> li
     ):
         raise EmbeddingError("DashScope devolvió una cantidad inesperada de vectores")
 
-    embeddings.sort(key=lambda item: item.get("text_index", item.get("index", 0)))
-    vectors = [item.get("embedding") for item in embeddings]
+    # Cada vector dice a qué texto corresponde. Deben ser exactamente 0…n-1: un índice
+    # repetido cruzaría los vectores sin ningún error, y al construir el índice guardaría un
+    # vector bajo el título equivocado.
+    positions = [item.get("text_index", item.get("index")) for item in embeddings]
+    if any(type(position) is not int for position in positions) or sorted(positions) != list(
+        range(len(texts))
+    ):
+        raise EmbeddingError("DashScope devolvió vectores sin un índice válido para cada texto")
+    by_position = dict(zip(positions, embeddings, strict=True))
+    vectors = [by_position[position].get("embedding") for position in range(len(texts))]
     if any(
         not isinstance(vector, list)
         or len(vector) != DIMENSION
