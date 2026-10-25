@@ -24,12 +24,20 @@ class FakePost:
         self.reply = reply
         self.calls: list[tuple[str, dict[str, Any], str]] = []
         self.retries: list[int] = []
+        self.bases: list[str] = []
 
     def __call__(
-        self, path: str, body: dict[str, Any], api_key: str, *, retries: int = 0
+        self,
+        path: str,
+        body: dict[str, Any],
+        api_key: str,
+        *,
+        retries: int = 0,
+        base: str = dashscope_client.BASE_URL,
     ) -> dict[str, Any]:
         self.calls.append((path, body, api_key))
         self.retries.append(retries)
+        self.bases.append(base)
         if isinstance(self.reply, Exception):
             raise self.reply
         return self.reply
@@ -305,3 +313,62 @@ def test_post_survives_an_error_body_that_cannot_be_read(monkeypatch: pytest.Mon
     scripted_urlopen(monkeypatch, [failure])
     with pytest.raises(dashscope_client.ApiError, match=r"HTTP 503 \(sin código\)"):
         dashscope_client.post("services/x", {}, KEY)
+
+
+def chat_reply(content: str) -> dict[str, Any]:
+    return {"choices": [{"message": {"content": content}}]}
+
+
+def test_chat_json_asks_flash_for_json_without_thinking(api: FakePost) -> None:
+    api.reply = chat_reply('{"resumen": "Trabaja visión por computadora."}')
+    answer = dashscope_client.chat_json("Responde en JSON.", "Idea: robots")
+    assert answer == {"resumen": "Trabaja visión por computadora."}
+    ((path, body, key),) = api.calls
+    assert (path, key, api.bases) == ("chat/completions", KEY, [dashscope_client.CHAT_URL])
+    assert body["model"] == "qwen3.7-flash"
+    assert body["response_format"] == {"type": "json_object"}
+    assert body["enable_thinking"] is False
+    assert body["max_tokens"] == dashscope_client.CHAT_MAX_TOKENS
+    assert [m["role"] for m in body["messages"]] == ["system", "user"]
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [chat_reply("no es JSON"), chat_reply("[1, 2]"), {"choices": []}, {}],
+)
+def test_chat_json_rejects_anything_but_a_json_object(
+    api: FakePost, reply: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    api.reply = reply
+    with (
+        pytest.raises(dashscope_client.ChatError),
+        caplog.at_level(logging.WARNING, logger="dashscope_client"),
+    ):
+        dashscope_client.chat_json("Responde en JSON.", "Idea")
+    # Cada rechazo queda en el log: un modelo que responde mal no falla en silencio.
+    assert "El chat no devolvió" in caplog.text
+
+
+def test_chat_json_turns_api_errors_into_chat_errors(api: FakePost) -> None:
+    api.reply = dashscope_client.ApiError("DashScope respondió con HTTP 429 (Throttling)")
+    with pytest.raises(dashscope_client.ChatError, match="429"):
+        dashscope_client.chat_json("Responde en JSON.", "Idea")
+
+
+def test_chat_json_requires_api_key(api: FakePost, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DASHSCOPE_API_KEY")
+    with pytest.raises(dashscope_client.ChatError, match="DASHSCOPE_API_KEY"):
+        dashscope_client.chat_json("Responde en JSON.", "Idea")
+    assert not api.calls
+
+
+def test_post_can_reach_the_chat_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[str] = []
+
+    def urlopen(request: urllib.request.Request, timeout: float) -> io.BytesIO:
+        sent.append(request.full_url)
+        return io.BytesIO(b"{}")
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    dashscope_client.post("chat/completions", {}, KEY, base=dashscope_client.CHAT_URL)
+    assert sent == [f"{dashscope_client.HOST}/compatible-mode/v1/chat/completions"]

@@ -1,5 +1,7 @@
 """El perfil de una persona asesora. Lo usan Perfil de asesor, Asesores y el buscador."""
 
+from collections.abc import Callable
+
 import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
@@ -582,9 +584,12 @@ def render_openalex(person: str) -> None:
 
 
 @st.dialog("Perfil", width="large")
-def profile_dialog(person: str) -> None:
+def profile_dialog(person: str, intro: Callable[[], None] | None = None) -> None:
+    """El perfil en un diálogo; `intro`, si se da, dibuja algo propio de quien lo abre."""
     st.markdown(f"### {person}")
     profile_link(person, "Abrir en Perfil de asesor")
+    if intro is not None:
+        intro()
     render_profile(person)
 
 

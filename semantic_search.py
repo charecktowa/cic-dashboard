@@ -114,6 +114,7 @@ def prepare_index(index: pl.DataFrame) -> TitleIndex:
             "person",
             "lab",
             role=pl.col("role") if "role" in index.columns else pl.lit(None, dtype=pl.String),
+            year=pl.col("year") if "year" in index.columns else pl.lit(None, dtype=pl.Int32),
         ),
         titles=titles,
         unit_vectors=matrix / norms,
@@ -374,7 +375,16 @@ def recommend(
         .agg(
             depth=(pl.col("score") * pl.col("weight")).sum(),
             evidence_count=pl.col("work").n_unique().cast(pl.UInt32),
-            related=(pl.col("source") + pl.lit(" · ") + pl.col("title")).head(RELATED_SHOWN),
+            # "Artículo · título (2024)": el año, cuando el catálogo lo tiene (las tesis no),
+            # deja ver si la persona sigue trabajando el tema.
+            related=(
+                pl.col("source")
+                + pl.lit(" · ")
+                + pl.col("title")
+                + pl.when(pl.col("year").is_not_null())
+                .then(pl.lit(" (") + pl.col("year").cast(pl.String) + pl.lit(")"))
+                .otherwise(pl.lit(""))
+            ).head(RELATED_SHOWN),
             **extra,
         )
     )

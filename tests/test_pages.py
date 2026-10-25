@@ -35,7 +35,7 @@ def open_page(page: str, **query: str) -> AppTest:
 
 
 def search_finder(app: AppTest, idea: str) -> AppTest:
-    app.text_area(key="idea").set_value(idea)
+    app.text_area[0].set_value(idea)
     next(
         button for button in app.form_submit_button if button.label == "Buscar afinidades"
     ).click().run()
@@ -902,3 +902,281 @@ def test_finder_lists_up_to_five_related_works(
         lines = expander.text[0].value.splitlines()
         assert lines == [f"• {work}" for work in row["related"]]
         assert 1 <= len(lines) <= 5
+
+
+@pytest.fixture
+def neighbor_chat(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Un chat falso que propone un área con trabajos en el catálogo falso y otra sin ellos."""
+    import idea_assistant
+
+    asked: list[str] = []
+
+    def chat_json(instructions: str, prompt: str) -> dict:
+        asked.append(prompt)
+        return {
+            "sugerencias": [
+                {"tema": "Redes neuronales", "busqueda": "deep learning y redes neuronales"},
+                {"tema": "Sin trabajos", "busqueda": "prótesis para odontología pediátrica"},
+            ]
+        }
+
+    monkeypatch.setattr(idea_assistant, "chat_json", chat_json)
+    return asked
+
+
+@pytest.mark.usefixtures("tables")
+def test_neighbor_areas_are_opt_in_and_launch_a_search(
+    semantic_finder: list[str], neighbor_chat: list[str]
+) -> None:
+    import streamlit as st
+
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
+    assert not app.exception, app.exception
+    # El chat no se llama hasta que el visitante lo pide.
+    assert neighbor_chat == []
+    ask = next(b for b in app.button if "Sugerir áreas cercanas" in b.label)
+    ask.click().run()
+    assert len(neighbor_chat) == 1 and "odontología" in neighbor_chat[0]
+    # Solo la sugerencia con trabajos en el catálogo se ofrece.
+    offered = [b for b in app.button if str(b.key).startswith("neighbor-")]
+    assert [b.label for b in offered] == ["Redes neuronales"]
+    sent = len(semantic_finder)
+    offered[0].click().run()
+    assert not app.exception, app.exception
+    # La caja de la idea muestra la sugerencia: es una caja nueva con ese texto.
+    assert app.text_area[0].value == "deep learning y redes neuronales"
+    # Y la búsqueda nueva es la de la sugerencia, no la idea anterior.
+    assert "embedding: deep learning y redes neuronales" in semantic_finder[sent:]
+
+
+@pytest.mark.usefixtures("tables")
+def test_no_neighbor_button_when_every_word_is_covered(
+    semantic_finder: list[str], neighbor_chat: list[str]
+) -> None:
+    app = search_finder(open_page("encuentra"), "deep learning y redes neuronales")
+    assert not [b for b in app.button if "Sugerir áreas cercanas" in b.label]
+
+
+@pytest.mark.usefixtures("tables")
+def test_neighbor_areas_count_toward_the_limits(
+    semantic_finder: list[str], neighbor_chat: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from search_limits import SearchLimiter
+
+    app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
+    # La búsqueda pasó; para cuando pide sugerencias, el sitio ya llegó a su tope.
+    with monkeypatch.context() as limited:
+        limited.setattr(SearchLimiter, "allow", lambda self, client: "hora")
+        next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    assert not app.exception, app.exception
+    assert neighbor_chat == []
+    assert any("límite de búsquedas por hora" in i.value for i in app.info)
+    # El tope no queda como respuesta: pasada la hora, el visitante puede reintentar.
+    next(b for b in app.button if b.label == "Reintentar").click().run()
+    assert len(neighbor_chat) == 1
+    assert [b.label for b in app.button if str(b.key).startswith("neighbor-")]
+
+
+@pytest.mark.usefixtures("tables")
+def test_a_failed_neighbor_request_can_be_retried(
+    semantic_finder: list[str], neighbor_chat: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import streamlit as st
+
+    import idea_assistant
+    from dashscope_client import ChatError
+
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
+    working = idea_assistant.chat_json
+
+    def down(instructions: str, prompt: str) -> dict:
+        raise ChatError("sin red")
+
+    monkeypatch.setattr(idea_assistant, "chat_json", down)
+    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    assert not app.exception, app.exception
+    assert any("No pudimos consultar al modelo" in i.value for i in app.info)
+    monkeypatch.setattr(idea_assistant, "chat_json", working)
+    next(b for b in app.button if b.label == "Reintentar").click().run()
+    assert [b.label for b in app.button if str(b.key).startswith("neighbor-")]
+
+
+@pytest.fixture
+def summary_chat(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Un chat falso que resume y elige la primera obra de la lista que recibe."""
+    import idea_assistant
+
+    asked: list[str] = []
+
+    def chat_json(instructions: str, prompt: str) -> dict:
+        asked.append(prompt)
+        return {"resumen": "Trabaja temas cercanos a tu idea [1].", "obra": 1}
+
+    monkeypatch.setattr(idea_assistant, "chat_json", chat_json)
+    return asked
+
+
+def open_first_profile(app: AppTest) -> AppTest:
+    next(b for b in app.button if str(b.key).startswith("open-")).click().run()
+    assert not app.exception, app.exception
+    return app
+
+
+@pytest.mark.usefixtures("tables")
+def test_profile_from_the_finder_explains_the_fit(
+    semantic_finder: list[str], summary_chat: list[str]
+) -> None:
+    import streamlit as st
+
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    assert summary_chat == []
+    open_first_profile(app)
+    assert any("Por qué podría encajar" in m.value for m in app.markdown)
+    shown = [t.value for t in app.text]
+    assert "Trabaja temas cercanos a tu idea [1]." in shown
+    # La obra seleccionada y la lista citada usan los mismos números que recibió el chat.
+    ((prompt),) = summary_chat
+    first = next(line for line in prompt.splitlines() if line.startswith("[1] "))
+    assert first in shown
+    cited = next(text for text in shown if text.startswith("[1] ") and "\n" in text)
+    assert all(line in prompt for line in cited.splitlines())
+    assert any("generado por IA" in c.value for c in app.caption)
+    # Volver a abrirlo no llama otra vez al chat: lo evita la sesión, no el caché.
+    st.cache_data.clear()
+    open_first_profile(app)
+    assert len(summary_chat) == 1
+
+
+@pytest.mark.usefixtures("tables")
+def test_a_failed_summary_can_be_retried(
+    semantic_finder: list[str], summary_chat: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import streamlit as st
+
+    import idea_assistant
+    from dashscope_client import ChatError
+
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    working = idea_assistant.chat_json
+
+    def down(instructions: str, prompt: str) -> dict:
+        raise ChatError("sin red")
+
+    monkeypatch.setattr(idea_assistant, "chat_json", down)
+    open_first_profile(app)
+    assert any("No pudimos consultar al modelo" in c.value for c in app.caption)
+    monkeypatch.setattr(idea_assistant, "chat_json", working)
+    next(b for b in app.button if b.label == "Reintentar el resumen").click().run()
+    assert not app.exception, app.exception
+    # En el navegador el diálogo sigue abierto; AppTest corre la página entera y lo cierra.
+    open_first_profile(app)
+    assert len(summary_chat) == 1
+    assert "Trabaja temas cercanos a tu idea [1]." in [t.value for t in app.text]
+
+
+def touch_index() -> None:
+    """Simula un índice reconstruido: misma ruta, otra fecha de modificación."""
+    import os
+
+    import common
+
+    path = common.DATA / "title_embeddings.parquet"
+    later = path.stat().st_mtime_ns + 1_000_000_000
+    os.utime(path, ns=(later, later))
+
+
+@pytest.mark.usefixtures("tables")
+def test_a_new_index_asks_the_ai_helpers_again(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import streamlit as st
+
+    import idea_assistant
+
+    asked: list[str] = []
+
+    def chat_json(instructions: str, prompt: str) -> dict[str, object]:
+        asked.append(prompt)
+        if "Persona:" in prompt:
+            return {"resumen": "Trabaja temas cercanos [1].", "obra": 1}
+        busqueda = "deep learning y redes neuronales"
+        return {"sugerencias": [{"tema": "Redes neuronales", "busqueda": busqueda}]}
+
+    monkeypatch.setattr(idea_assistant, "chat_json", chat_json)
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
+    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    open_first_profile(app)
+    assert len(asked) == 2
+    # Con otro índice, lo guardado en la sesión ya no vale: las sugerencias y el resumen se
+    # piden otra vez (sin el caché, que guarda la respuesta de cada idea).
+    touch_index()
+    st.cache_data.clear()
+    app.run()
+    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    open_first_profile(app)
+    assert len(asked) == 4
+
+
+@pytest.mark.usefixtures("tables")
+def test_profile_from_the_term_search_has_no_ai_summary(summary_chat: list[str]) -> None:
+    app = open_first_profile(search_finder(open_page("encuentra"), "deep learning"))
+    assert not any("Por qué podría encajar" in m.value for m in app.markdown)
+    assert summary_chat == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_an_example_fills_the_idea_box() -> None:
+    app = open_page("encuentra")
+    app.text_area[0].set_value("algo que escribí").run()
+    app.pills(key="example").set_value("Robots").run()
+    assert not app.exception, app.exception
+    # Una caja nueva con el texto del ejemplo: el navegador sí la muestra.
+    assert app.text_area[0].value == "robots móviles, control y navegación autónoma"
+
+
+@pytest.mark.usefixtures("tables")
+def test_ai_helpers_do_not_take_search_slots(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    import streamlit as st
+
+    import idea_assistant
+
+    asked: list[str] = []
+
+    def chat_json(instructions: str, prompt: str) -> dict[str, object]:
+        asked.append(prompt)
+        if "Persona:" in prompt:
+            return {"resumen": "Trabaja temas cercanos [1].", "obra": 1}
+        busqueda = "deep learning y redes neuronales"
+        return {"sugerencias": [{"tema": "Redes neuronales", "busqueda": busqueda}]}
+
+    taken: list[str] = []
+
+    class CountingSlots(threading.BoundedSemaphore):
+        def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
+            taken.append("turno")
+            return super().acquire(blocking, timeout)
+
+        # Semaphore define __enter__ = acquire: hay que volver a enlazarlo con la nueva.
+        __enter__ = acquire
+
+    monkeypatch.setattr(idea_assistant, "chat_json", chat_json)
+    # El semáforo se crea de nuevo, ya contando, en la próxima búsqueda.
+    st.cache_resource.clear()
+    st.cache_data.clear()
+    monkeypatch.setattr(threading, "BoundedSemaphore", CountingSlots)
+    app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
+    assert taken == ["turno"]
+    # Pedir áreas cercanas y abrir un perfil llaman al chat sin ocupar turnos de búsqueda.
+    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    open_first_profile(app)
+    assert len(asked) == 2
+    assert taken == ["turno"]

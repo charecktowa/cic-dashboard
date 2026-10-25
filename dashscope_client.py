@@ -17,7 +17,15 @@ from typing import Any, Literal
 
 MODEL = "qwen3.7-text-embedding"
 RERANK_MODEL = "qwen3-rerank"
-BASE_URL = "https://ap-southeast-1.maas.qwencloudapi.com/api/v1"
+HOST = "https://ap-southeast-1.maas.qwencloudapi.com"
+BASE_URL = f"{HOST}/api/v1"
+# El chat vive en la ruta compatible con OpenAI del mismo servidor y con la misma llave.
+CHAT_URL = f"{HOST}/compatible-mode/v1"
+CHAT_PATH = "chat/completions"
+# Barato y rápido: ~$0.03 por millón de tokens de entrada y $0.13 de salida.
+CHAT_MODEL = "qwen3.7-flash"
+# Lo que una respuesta puede gastar como máximo: unas pocas frases en JSON.
+CHAT_MAX_TOKENS = 400
 DIMENSION = 1024
 MAX_BATCH_SIZE = 20
 REQUEST_TIMEOUT = 30
@@ -56,7 +64,13 @@ class RerankError(RuntimeError):
     """La API de reranking no está disponible o devolvió una respuesta inválida."""
 
 
-def post(path: str, body: dict[str, Any], api_key: str, *, retries: int = 0) -> dict[str, Any]:
+class ChatError(RuntimeError):
+    """El modelo de chat no está disponible o no devolvió un objeto JSON."""
+
+
+def post(
+    path: str, body: dict[str, Any], api_key: str, *, retries: int = 0, base: str = BASE_URL
+) -> dict[str, Any]:
     """Un POST JSON a DashScope, con hasta `retries` reintentos si la falla es pasajera.
 
     La llave va en la cabecera, nunca en la URL ni en un error.
@@ -64,7 +78,7 @@ def post(path: str, body: dict[str, Any], api_key: str, *, retries: int = 0) -> 
     attempt = 0
     while True:
         try:
-            return send(path, body, api_key)
+            return send(f"{base}/{path}", body, api_key)
         except ApiError as error:
             if not error.transient or attempt == retries:
                 raise
@@ -72,10 +86,11 @@ def post(path: str, body: dict[str, Any], api_key: str, *, retries: int = 0) -> 
             attempt += 1
 
 
-def send(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
+def send(url: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
     """Un solo intento de POST; convierte cada falla en ApiError."""
+    path = url.removeprefix(HOST)
     request = urllib.request.Request(
-        f"{BASE_URL}/{path}",
+        url,
         data=json.dumps(body).encode(),
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         method="POST",
@@ -232,3 +247,39 @@ def rerank_titles(query: str, titles: Sequence[str]) -> list[tuple[int, float]]:
     if len({index for index, _ in ranked}) != len(titles):
         raise RerankError("DashScope devolvió índices duplicados")
     return ranked
+
+
+def chat_json(instructions: str, prompt: str) -> dict[str, Any]:
+    """Una respuesta en JSON de CHAT_MODEL, sin razonamiento y con temperatura baja.
+
+    Devuelve el objeto que escribió el modelo; quien llama valida sus campos. Sin llave, sin
+    respuesta o con algo que no sea un objeto JSON, ChatError.
+    """
+    api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+    if not api_key:
+        raise ChatError("Falta configurar DASHSCOPE_API_KEY en el servidor")
+    body = {
+        "model": CHAT_MODEL,
+        "messages": [
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": prompt},
+        ],
+        "response_format": {"type": "json_object"},
+        "enable_thinking": False,
+        "temperature": 0.2,
+        "max_tokens": CHAT_MAX_TOKENS,
+    }
+    try:
+        reply = post(CHAT_PATH, body, api_key, base=CHAT_URL)
+    except ApiError as error:
+        raise ChatError(str(error)) from None
+    try:
+        content = reply["choices"][0]["message"]["content"]
+        answer = json.loads(content)
+    except (KeyError, IndexError, TypeError, ValueError):
+        failure(CHAT_PATH, "El chat no devolvió JSON")
+        raise ChatError("El chat no devolvió JSON") from None
+    if not isinstance(answer, dict):
+        failure(CHAT_PATH, "El chat no devolvió un objeto JSON")
+        raise ChatError("El chat no devolvió un objeto JSON")
+    return answer

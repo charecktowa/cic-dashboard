@@ -3,6 +3,7 @@
 import re
 import threading
 from dataclasses import dataclass
+from functools import partial
 
 import plotly.express as px
 import polars as pl
@@ -26,12 +27,14 @@ from common import (
 from dashscope_client import (
     MAX_QUERY_CHARS,
     MAX_RERANK_DOCUMENTS,
+    ChatError,
     EmbeddingError,
     RerankError,
     embed_query,
     is_configured,
     rerank_titles,
 )
+from idea_assistant import Suggestion, Summary, advisor_summary, neighbor_areas
 from search_limits import SEARCHES_AT_ONCE, SearchLimiter, client_key
 from semantic_search import (
     EVIDENCE_LIMIT,
@@ -100,7 +103,10 @@ def cached_ranking(query: str, version: int) -> pl.DataFrame:
 
 @st.cache_resource
 def search_slots() -> threading.BoundedSemaphore:
-    """Cuántas búsquedas semánticas corren a la vez; las demás esperan su turno."""
+    """Cuántas búsquedas semánticas corren a la vez; las demás esperan su turno.
+
+    Solo las búsquedas lo usan: cuida memoria y CPU, y las llamadas al chat no ocupan ninguna.
+    """
     return threading.BoundedSemaphore(SEARCHES_AT_ONCE)
 
 
@@ -110,6 +116,7 @@ def search_limiter() -> SearchLimiter:
     return SearchLimiter()
 
 
+UNAVAILABLE = "No pudimos consultar al modelo esta vez"
 LIMIT_MESSAGES = {
     "visitante": "Hiciste muchas búsquedas en la última hora",
     "hora": "El tablero alcanzó su límite de búsquedas por hora",
@@ -117,11 +124,28 @@ LIMIT_MESSAGES = {
 }
 
 
+def set_idea(new_text: str) -> None:
+    """Escribe en la caja de la idea desde el código, como un ejemplo o una sugerencia.
+
+    La caja está dentro de un formulario, y ahí el navegador no muestra un valor cambiado
+    desde la sesión. Con una clave nueva, Streamlit la dibuja otra vez con el texto nuevo.
+    """
+    st.session_state["idea_text"] = new_text
+    st.session_state["idea_version"] = st.session_state.get("idea_version", 0) + 1
+
+
 def use_example() -> None:
     picked = st.session_state.get("example")
     if picked:
-        st.session_state["idea"] = EXAMPLES[picked]
+        set_idea(EXAMPLES[picked])
         st.session_state.pop("results", None)
+
+
+@dataclass(frozen=True)
+class Failure:
+    """Un resumen que no se pudo pedir (un tope o una falla del chat): se puede reintentar."""
+
+    message: str
 
 
 @dataclass(frozen=True)
@@ -137,6 +161,8 @@ class Results:
     semantic: bool
     # (tipo, texto, ícono), con tipo "info" o "warning", para mostrar sobre los resultados.
     notices: list[tuple[str, str, str]]
+    # Las palabras de la idea que ningún título menciona, como las escribió el visitante.
+    uncovered: tuple[str, ...] = ()
 
 
 def as_written(query: str, term: str) -> str:
@@ -206,16 +232,117 @@ def run_search(query: str) -> Results:
             "coincidencia de términos."
         )
         return term_results(query, [("warning", warning, ":material/cloud_off:")])
-    missing = [
-        f"«{as_written(query, term)}»" for term in uncovered_words(query, index.corpus, variants)
-    ]
-    if missing:
+    uncovered = tuple(
+        as_written(query, term) for term in uncovered_words(query, index.corpus, variants)
+    )
+    if uncovered:
+        missing = ", ".join(f"«{word}»" for word in uncovered)
         info = (
-            f"Ningún título del catálogo menciona {', '.join(missing)}. Las sugerencias se basan "
-            "en el resto de tu idea y en temas parecidos: tómalas como un punto de partida."
+            f"Ningún título del catálogo menciona {missing}. Las sugerencias se basan en el "
+            "resto de tu idea y en temas parecidos: tómalas como un punto de partida."
         )
         notices.append(("info", info, ":material/search_off:"))
-    return Results(query, recognized_terms(query), labs, people, variants, True, notices)
+    return Results(query, recognized_terms(query), labs, people, variants, True, notices, uncovered)
+
+
+@st.cache_data(ttl=3600, max_entries=128, show_spinner=False)
+def cached_neighbors(query: str, uncovered: tuple[str, ...], version: int) -> list[Suggestion]:
+    """Las áreas vecinas de una idea; `version` las renueva si cambia el índice."""
+    return neighbor_areas(query, list(uncovered), title_index(version).corpus)
+
+
+def suggest_neighbors(results: Results) -> None:
+    """Pide al chat las áreas vecinas, si caben en los topes, y las guarda en la sesión.
+
+    Solo una respuesta del modelo queda guardada. Un tope o una falla quedan como aviso, y
+    el botón sigue ahí para reintentar.
+    """
+    st.session_state.pop("neighbors_failure", None)
+    version = index_version()
+    # Con la versión del índice: si el catálogo cambia, la misma idea se pregunta de nuevo.
+    asked = (results.query, version)
+    limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
+    if limit or version is None:
+        message = f"{LIMIT_MESSAGES[limit]}; intenta más tarde" if limit else UNAVAILABLE
+        st.session_state["neighbors_failure"] = (asked, message)
+        return
+    try:
+        # Sin spinner: un callback dibuja arriba de la página, no junto al botón. Sin turno
+        # del semáforo: el chat solo espera la red, y no debe hacer esperar a las búsquedas.
+        found = cached_neighbors(results.query, results.uncovered, version)
+    except ChatError:
+        st.session_state["neighbors_failure"] = (asked, UNAVAILABLE)
+        return
+    st.session_state["neighbors"] = (asked, found)
+
+
+@st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
+def cached_summary(query: str, person: str, works: tuple[str, ...]) -> Summary | None:
+    """El resumen de por qué una persona encaja con una idea, una vez por idea y persona."""
+    return advisor_summary(query, person, list(works))
+
+
+def forget_summary(key: tuple[str, str, int | None]) -> None:
+    """Borra un resumen fallido de la sesión: la próxima vez se pide de nuevo."""
+    st.session_state["summaries"].pop(key, None)
+
+
+def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
+    """Por qué esta persona encaja con la idea. Solo aparece al abrir su perfil desde aquí.
+
+    Se guarda en la sesión: interactuar dentro del diálogo no vuelve a llamar al chat ni a
+    contar en los topes. Un tope o una falla también se guardan, como Failure, pero con un
+    botón para reintentar.
+    """
+    stored: dict[tuple[str, str, int | None], Summary | Failure | None] = (
+        st.session_state.setdefault("summaries", {})
+    )
+    # Con la versión del índice: si el catálogo cambia, las obras afines también.
+    key = (query, person, index_version())
+    if key not in stored:
+        limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
+        if limit:
+            stored[key] = Failure(f"{LIMIT_MESSAGES[limit]}; intenta más tarde")
+        else:
+            try:
+                # Sin turno del semáforo: el chat solo espera la red (de 3 a 5 s, o hasta el
+                # tiempo límite) y no debe hacer esperar a las búsquedas semánticas.
+                with st.spinner("Resumiendo por qué encaja con tu idea…"):
+                    stored[key] = cached_summary(query, person, works)
+            except ChatError:
+                stored[key] = Failure(UNAVAILABLE)
+    summary = stored[key]
+    with st.container(border=True):
+        st.markdown("**Por qué podría encajar con tu idea**")
+        if isinstance(summary, Summary):
+            # Texto plano: lo escribió un modelo y no debe interpretarse como formato.
+            st.text(summary.text)
+            st.caption("Obra seleccionada")
+            st.text(f"[{summary.work}] {works[summary.work - 1]}")
+            st.caption("Sus obras afines, numeradas")
+            st.text("\n".join(f"[{number}] {work}" for number, work in enumerate(works, start=1)))
+            st.caption(
+                "Resumen generado por IA (Qwen) a partir de sus obras afines a tu idea; cada "
+                "número entre corchetes es una de las obras de la lista. Puede equivocarse: "
+                "revisa sus trabajos antes de escribirle."
+            )
+        elif isinstance(summary, Failure):
+            st.caption(f"{summary.message}.")
+            st.button(
+                "Reintentar el resumen",
+                icon=":material/refresh:",
+                on_click=forget_summary,
+                args=(key,),
+            )
+        else:
+            # El modelo respondió, pero sin un resumen que cite sus obras: no se reintenta.
+            st.caption("No pudimos generar un resumen confiable para esta persona.")
+
+
+def search_neighbor(query: str) -> None:
+    """Lanza la búsqueda de un área vecina como si el visitante la hubiera escrito."""
+    set_idea(query)
+    st.session_state["pending_search"] = query
 
 
 st.title("Encuentra tu laboratorio y tu asesor")
@@ -235,7 +362,8 @@ st.pills(
 with st.form("finder"):
     idea = st.text_area(
         "Tu idea",
-        key="idea",
+        value=st.session_state.get("idea_text", ""),
+        key=f"idea-{st.session_state.get('idea_version', 0)}",
         placeholder="Por ejemplo: detección de emociones en texto con deep learning",
         height=90,
         max_chars=MAX_QUERY_CHARS,
@@ -244,8 +372,9 @@ with st.form("finder"):
     if index_version() is not None and is_configured():
         st.caption(
             "Al buscar, tu idea y hasta 100 títulos públicos se envían a Alibaba Cloud para "
-            "calcular similitud y ordenar los resultados. No incluyas información personal o "
-            "confidencial."
+            "calcular similitud y ordenar los resultados; también al pedir áreas cercanas o al "
+            "abrir un perfil, para resumir con IA por qué encaja. No incluyas información "
+            "personal o confidencial."
         )
     submitted = st.form_submit_button("Buscar afinidades", type="primary", icon=":material/search:")
 
@@ -255,6 +384,8 @@ if submitted:
         footer()
         st.stop()
     st.session_state["results"] = run_search(idea.strip())
+elif pending := st.session_state.pop("pending_search", None):
+    st.session_state["results"] = run_search(pending)
 
 results: Results | None = st.session_state.get("results")
 if results is None:
@@ -276,6 +407,41 @@ if idea.strip() != query:
     )
 for kind, message, icon in results.notices:
     (st.warning if kind == "warning" else st.info)(message, icon=icon)
+
+# El chat solo se llama si el visitante lo pide: sin clic, no hay costo.
+if results.semantic and results.uncovered:
+    current = (query, index_version())
+    asked, neighbors = st.session_state.get("neighbors", ((), []))
+    if asked != current:
+        failed, message = st.session_state.get("neighbors_failure", ((), ""))
+        if failed == current:
+            st.info(f"{message}.", icon=":material/hourglass_top:")
+        st.button(
+            "Reintentar"
+            if failed == current
+            else "Sugerir áreas cercanas que sí están en el catálogo (IA)",
+            icon=":material/refresh:" if failed == current else ":material/auto_awesome:",
+            on_click=suggest_neighbors,
+            args=(results,),
+        )
+    elif not neighbors:
+        st.info(
+            "No encontramos un área cercana con trabajos en el catálogo. Prueba con otras "
+            "palabras de tu idea.",
+            icon=":material/search_off:",
+        )
+    else:
+        st.markdown("**Áreas cercanas con trabajos en el CIC** · sugeridas por IA")
+        with st.container(horizontal=True, gap="small"):
+            for number, suggestion in enumerate(neighbors):
+                st.button(
+                    suggestion.topic,
+                    key=f"neighbor-{number}",
+                    help=suggestion.query,
+                    icon=":material/travel_explore:",
+                    on_click=search_neighbor,
+                    args=(suggestion.query,),
+                )
 
 term_counts = dict(load("term_df").iter_rows())
 ignored = [term for term in text.terms(query) if " " not in term and term not in recognized]
@@ -381,7 +547,14 @@ for start in range(0, len(people_rows), 2):
                 key=f"open-{row['person']}",
                 icon=":material/open_in_full:",
             ):
-                profile_dialog(row["person"])
+                # El resumen con IA solo existe con obras afines, es decir, en la búsqueda
+                # semántica; desde la búsqueda por términos, el perfil de siempre.
+                fit = (
+                    partial(render_fit, query, row["person"], tuple(row["related"]))
+                    if semantic
+                    else None
+                )
+                profile_dialog(row["person"], intro=fit)
 
 st.subheader("¿Tu tema está creciendo?")
 if recognized:
@@ -437,6 +610,14 @@ obras poco afines tampoco ganan a una muy cercana.
 
 En la búsqueda semántica, si ningún título del catálogo menciona una palabra de tu idea de 6
 letras o más, la página lo dice.
+
+**Lo que hace la IA.** Dos ayudas usan un modelo de lenguaje (Qwen3.7 Flash), y solo cuando
+las pides. Si una palabra de tu idea no tiene trabajos, el botón *Sugerir áreas cercanas*
+propone hasta tres áreas que sí tienen títulos en el catálogo; cada una se comprueba antes de
+mostrarse. Al abrir el perfil de una persona desde aquí, un resumen de 3 a 5 oraciones explica
+por qué podría encajar con tu idea y cita sus obras afines por número, como [1] o [2][3], con
+la lista debajo; solo usa esos títulos, y cada cita y la obra señalada siempre son de ella.
+Ambas pueden equivocarse: revisa los trabajos antes de escribirle a alguien.
 
 **Limitaciones.** Solo se leen títulos, no resúmenes. Las tesis se vinculan con Director 1 y
 Director 2; los comités no cuentan como experiencia de dirección. Es una herramienta para
