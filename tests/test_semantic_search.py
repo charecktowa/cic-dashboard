@@ -248,3 +248,14 @@ def test_prepare_index_keeps_links_without_vectors() -> None:
     assert index.unit_vectors.shape == (4, 2)
     assert index.unit_vectors.dtype.name == "float32"
     assert (abs((index.unit_vectors**2).sum(axis=1) - 1) < 1e-6).all()
+
+
+def test_lexical_variants_need_the_same_beginning() -> None:
+    corpus = Corpus.of(
+        ["Alineación de ontologías", "Una ontologia de dominio", "Ontological engineering"]
+        + ["Detection of fake news", "Deteccion de rostros"] * 3
+    )
+    variants = lexical_variants("odontologia y deteccions", corpus)
+    # Parecida en letras, pero otra palabra: no es variante.
+    assert "odontologia" not in variants
+    assert set(variants["deteccions"]) >= {"detection", "deteccion"}

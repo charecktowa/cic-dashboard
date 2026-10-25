@@ -21,6 +21,8 @@ BM25_B = 0.75
 VARIANT_SIMILARITY = 0.82
 VARIANT_WEIGHT = 0.65
 MAX_TERM_VARIANTS = 4
+# Letras iniciales que una variante debe compartir con la palabra de la idea.
+PREFIX = 3
 # Quién representa una obra con varios integrantes: el papel más directo primero.
 ROLE_ORDER = {
     "Director 1": 0,
@@ -142,7 +144,9 @@ def lexical_variants(query: str, corpus: Corpus) -> dict[str, list[str]]:
         candidates = [
             (SequenceMatcher(None, term, candidate).ratio(), candidate)
             for candidate in vocabulary
-            if abs(len(term) - len(candidate)) <= 3
+            # Mismo comienzo: "deteccion" y "detection" sí; "odontologia" y "ontologia", que
+            # se parecen en 82% de sus letras, no.
+            if abs(len(term) - len(candidate)) <= 3 and candidate[:PREFIX] == term[:PREFIX]
         ]
         matches = sorted(
             (
