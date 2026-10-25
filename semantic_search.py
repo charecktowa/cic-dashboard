@@ -171,9 +171,15 @@ def hybrid_rank_titles(index: pl.DataFrame, query: str, query_vector: list[float
 
 
 def apply_rerank(ranked: pl.DataFrame, rerank_results: list[tuple[int, float]]) -> pl.DataFrame:
-    """Reordena la ventana de candidatos conservando el ranking híbrido fuera de ella."""
+    """Reordena la ventana de candidatos conservando el ranking híbrido fuera de ella.
+
+    Dentro de la ventana, `score` pasa a ser la relevancia del reranker, para que la afinidad
+    siga el nuevo orden; fuera de ella, recommend() no lee nada (EVIDENCE_LIMIT es la ventana).
+    """
     if not rerank_results:
         return ranked
+    # El orden lo da la relevancia, aunque la API no la devolviera ordenada.
+    rerank_results = sorted(rerank_results, key=lambda result: -result[1])
     candidate_count = len(rerank_results)
     if candidate_count > ranked.height:
         raise ValueError("El reranker devolvió más candidatos que el ranking original")
@@ -185,10 +191,11 @@ def apply_rerank(ranked: pl.DataFrame, rerank_results: list[tuple[int, float]]) 
 
     order = indices + list(range(candidate_count, ranked.height))
     scores_by_index = dict(rerank_results)
-    return ranked[order].with_columns(
+    reranked = ranked[order].with_columns(
         rerank_score=pl.Series([scores_by_index.get(index) for index in order], dtype=pl.Float64),
         rank=pl.Series(range(1, ranked.height + 1), dtype=pl.UInt32),
     )
+    return reranked.with_columns(score=pl.coalesce("rerank_score", "score"))
 
 
 def recommend(
@@ -200,8 +207,9 @@ def recommend(
 ) -> pl.DataFrame:
     """Agrupa los títulos más relevantes por persona o laboratorio.
 
-    Cada grupo se ordena por su mejor título, para que quienes tienen más registros no
-    acumulen una ventaja por volumen. La obra que lo justificó se conserva como evidencia.
+    Cada grupo se ordena por su título mejor posicionado (el menor `rank`), para que quienes
+    tienen más registros no acumulen una ventaja por volumen y para que el orden del reranker,
+    cuando lo hay, decida. La obra que lo justificó se conserva como evidencia.
     """
     if group_by not in {"person", "lab"}:
         raise ValueError("group_by debe ser 'person' o 'lab'")
@@ -231,8 +239,10 @@ def recommend(
     if links.is_empty():
         return pl.DataFrame(schema=schema)
 
+    # `links` va ordenado por rank: el primer título de cada grupo es el mejor posicionado.
     aggregations = {
-        "score": pl.col("score").max(),
+        "best_rank": pl.col("rank").min(),
+        "score": pl.col("score").first(),
         "evidence_title": pl.col("title").first(),
         "evidence_source": pl.col("source").first(),
         "evidence_count": pl.col("title_id").n_unique().cast(pl.UInt32),
@@ -244,8 +254,9 @@ def recommend(
         links.group_by(group_by, maintain_order=True)
         .agg(**aggregations)
         .with_columns(matched=pl.col("evidence_source") + pl.lit(" · ") + pl.col("evidence_title"))
-        .sort(["score", group_by], descending=[True, False])
+        .sort(["best_rank", group_by])
         .head(limit)
+        .drop("best_rank")
     )
     top = cast(float, grouped["score"].max() or 0.0)
     return grouped.with_columns(

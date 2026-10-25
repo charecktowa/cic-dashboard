@@ -156,6 +156,32 @@ def test_apply_rerank_reorders_candidates_and_keeps_hybrid_tail() -> None:
     assert result["title_id"].to_list() == ["b", "a", "c"]
     assert result["rank"].to_list() == [1, 2, 3]
     assert result["rerank_score"].to_list() == [0.9, 0.4, None]
+    # La afinidad sigue al reranker dentro de la ventana y al ranking híbrido fuera.
+    assert result["score"].to_list() == [0.9, 0.4, 0.01]
+
+
+def test_apply_rerank_orders_by_relevance_even_if_unsorted() -> None:
+    ranked = pl.DataFrame(
+        {"title_id": ["a", "b"], "title": ["A", "B"], "rank": [1, 2], "score": [0.03, 0.02]}
+    )
+    assert apply_rerank(ranked, [(0, 0.2), (1, 0.7)])["title_id"].to_list() == ["b", "a"]
+
+
+def test_recommend_follows_the_reranked_order() -> None:
+    index = index_frame()
+    ranked = rank_titles(index, [1.0, 0.0])
+    # Por similitud, "Seguridad con malware" (Ciberseguridad) va primero; el reranker
+    # prefiere "Robótica móvil" y su laboratorio debe pasar arriba.
+    robotics = ranked["title_id"].to_list().index("c")
+    window = [(robotics, 0.95)] + [
+        (i, 0.5 - i / 100) for i in range(ranked.height) if i != robotics
+    ]
+    reranked = apply_rerank(ranked, window)
+    labs = recommend(index, reranked, group_by="lab")
+    assert labs["lab"].to_list()[0] == "Robótica"
+    assert labs["affinity"].to_list()[0] == 100
+    people = recommend(index, reranked, group_by="person")
+    assert people["person"].to_list()[0] == "Asesor C"
 
 
 def test_rank_titles_rejects_vectors_of_different_lengths() -> None:
