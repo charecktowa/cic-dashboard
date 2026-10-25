@@ -50,18 +50,61 @@ def test_rank_titles_deduplicates_shared_titles_and_uses_cosine() -> None:
     assert ranked["rank"].to_list() == [1, 2, 3, 4]
 
 
-def test_recommend_uses_best_evidence_and_preserves_co_advisors() -> None:
+def test_recommend_keeps_co_advisors_when_there_is_room() -> None:
     index = prepare_index(index_frame())
     ranked = rank_titles(index, [1.0, 0.0])
     people = recommend(index, ranked, group_by="person", limit=5)
     rows = {row["person"]: row for row in people.iter_rows(named=True)}
     assert set(rows) == {"Asesora A", "Asesor B", "Asesor C"}
-    assert rows["Asesora A"]["evidence_title"] == "Seguridad con malware"
+    # "Seguridad con malware" es de las dos personas: respalda a una, y Asesora A entra por
+    # su otra obra. Asesor B solo tiene esa, y entra porque sobra lugar.
     assert rows["Asesor B"]["evidence_title"] == "Seguridad con malware"
+    assert rows["Asesora A"]["evidence_title"] == "Detección de software malicioso"
     assert rows["Asesora A"]["evidence_count"] == 2
     assert rows["Asesor B"]["evidence_count"] == 1
     assert rows["Asesora A"]["lab"] == "Ciberseguridad"
     assert "lab" in recommend(index, ranked.head(0), group_by="person").columns
+
+
+SHARED = "Aplicaciones de aprendizaje profundo"
+
+
+def shared_work_frame() -> pl.DataFrame:
+    """Un proyecto genérico de tres personas arriba; cada una tiene otra obra más abajo."""
+    rows = [
+        ("p", SHARED, "Proyecto", "Colaboradora", "Colaborador", [1.0, 0.0]),
+        ("p", SHARED, "Proyecto", "Responsable", "Responsable técnico", [1.0, 0.0]),
+        ("p", SHARED, "Proyecto", "Otro colaborador", "Colaborador", [1.0, 0.0]),
+        ("t1", "Segmentación de radiografías", "Tesis", "Colaboradora", "Director 1", [0.9, 0.1]),
+        ("t2", "Clasificación de imágenes", "Tesis", "Otro colaborador", "Director 1", [0.8, 0.2]),
+        ("t3", "Diagnóstico por visión", "Artículo", "Tercera persona", "Autor", [0.7, 0.3]),
+    ]
+    columns = ["title_id", "title", "source", "person", "role", "embedding"]
+    return pl.DataFrame(rows, schema=columns, orient="row").with_columns(
+        lab=pl.col("person"),
+        model=pl.lit("qwen3.7-text-embedding"),
+        dimension=pl.lit(1024),
+    )
+
+
+def test_one_work_backs_one_person_the_most_direct_role() -> None:
+    index = prepare_index(shared_work_frame())
+    people = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person", limit=3)
+    # El proyecto lo representa su responsable técnico; las otras dos personas entran por su
+    # tesis, y el proyecto no se lleva los tres lugares.
+    assert people.select("person", "evidence_title").rows() == [
+        ("Responsable", SHARED),
+        ("Colaboradora", "Segmentación de radiografías"),
+        ("Otro colaborador", "Clasificación de imágenes"),
+    ]
+    assert people["affinity"].n_unique() == 3
+
+
+def test_one_work_backs_one_lab() -> None:
+    index = prepare_index(shared_work_frame())
+    labs = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="lab", limit=2)
+    assert labs["lab"].to_list() == ["Responsable", "Colaboradora"]
+    assert labs["affinity"].to_list()[1] < 100
 
 
 def test_recommend_returns_empty_for_unknown_group_or_no_links() -> None:
