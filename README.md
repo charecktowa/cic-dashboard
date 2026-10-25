@@ -95,6 +95,14 @@ los resultados en caché temporal para evitar llamadas repetidas durante los rer
 Si falta la llave o el índice, o si falla el servicio, «Encuentra tu lab» usa la búsqueda local
 por términos. No se deben introducir datos personales o confidenciales en la idea.
 
+Cada búsqueda semántica se cobra a la llave: unos $0.0007 con una idea corta y hasta $0.0017
+con una de 500 caracteres, casi todo del reranker. `search_limits.py` pone tres topes: 20
+búsquedas por hora por visitante (la IP que reporta Cloudflare), 300 por hora y 2,000 por día
+en todo el sitio. Con ellos el gasto máximo ronda $3.40 al día; pasado un tope, la página usa
+la búsqueda por términos. Los contadores viven en memoria: bastan porque la app corre en un
+solo proceso, y se reinician con el contenedor. Configura además una alerta de gasto en la
+consola de Alibaba Cloud.
+
 ## 1b. Métricas y publicaciones de OpenAlex (opcional)
 
 `openalex.py` vincula a cada persona investigadora con su perfil de
@@ -190,6 +198,9 @@ En Nginx Proxy Manager, crea un **Proxy Host**:
   ninguna ruta pública; tampoco va dentro de la imagen, se monta aparte.
 - **Contenedor endurecido**: usuario sin privilegios (uid 1000), disco de solo lectura,
   `cap_drop: ALL`, `no-new-privileges`, sin puertos publicados y 512 MB de memoria máxima.
+- **Gasto acotado en DashScope**: la búsqueda semántica tiene topes por visitante, por hora y
+  por día (`search_limits.py`). El límite por visitante usa `CF-Connecting-IP`, que solo es
+  confiable si al servidor únicamente llega Cloudflare (punto 1 de la lista siguiente).
 - **Lo que escriben los visitantes no ejecuta nada**: no hay SQL, `eval` ni
   `unsafe_allow_html`; el campo se limita a 500 caracteres y solo se envía al proveedor al
   presionar Buscar.

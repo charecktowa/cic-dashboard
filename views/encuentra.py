@@ -16,6 +16,7 @@ from dashscope_client import (
     is_configured,
     rerank_titles,
 )
+from search_limits import SearchLimiter, client_key
 from semantic_search import (
     apply_rerank,
     hybrid_rank_titles,
@@ -45,6 +46,19 @@ def cached_query_embedding(query: str) -> list[float]:
 def cached_title_rerank(query: str, titles: tuple[str, ...]) -> list[tuple[int, float]]:
     """Evita repetir el reranking cuando Streamlit vuelve a ejecutar la página."""
     return rerank_titles(query, titles)
+
+
+@st.cache_resource
+def search_limiter() -> SearchLimiter:
+    """Un solo contador para todas las sesiones del proceso."""
+    return SearchLimiter()
+
+
+LIMIT_MESSAGES = {
+    "visitante": "Hiciste muchas búsquedas en la última hora",
+    "hora": "El tablero alcanzó su límite de búsquedas por hora",
+    "día": "El tablero alcanzó su límite de búsquedas del día",
+}
 
 
 def use_example() -> None:
@@ -84,6 +98,10 @@ if submitted:
         footer()
         st.stop()
     st.session_state["searched_idea"] = idea.strip()
+    # Solo una búsqueda enviada cuenta; volver a dibujar la página no llama a la API.
+    if is_configured():
+        client = client_key(st.context.headers, st.context.ip_address)
+        st.session_state["limit_reason"] = search_limiter().allow(client)
 
 query = st.session_state.get("searched_idea", "")
 if not query:
@@ -121,8 +139,16 @@ variants = (
     else {}
 )
 semantic = False
+limit_reason = st.session_state.get("limit_reason")
 
-if index is not None and is_configured():
+if index is not None and is_configured() and limit_reason:
+    st.info(
+        f"{LIMIT_MESSAGES[limit_reason]}; mostramos la búsqueda por términos, que no tiene "
+        "límite. Vuelve a intentar más tarde.",
+        icon=":material/hourglass_top:",
+    )
+    recognized, labs, people = match(query)
+elif index is not None and is_configured():
     try:
         validate_index(index)
         with st.spinner("Buscando títulos relacionados…"):
