@@ -55,6 +55,13 @@ def test_finder_ranks_the_lab_that_uses_the_terms() -> None:
     assert not app.exception, app.exception
     subheaders = [s.value for s in app.subheader]
     assert "Laboratorios afines" in subheaders
+    # La barra más larga es la del laboratorio que match() pone primero.
+    import common
+
+    _, labs, _ = common.match("análisis de sentimiento con deep learning")
+    bars = chart_specs(app)[0]["data"][0]
+    affinities = numbers(bars["x"])
+    assert bars["y"][affinities.index(max(affinities))] == labs["lab"][0]
 
 
 @pytest.mark.usefixtures("tables")
@@ -842,4 +849,16 @@ def test_an_index_from_another_snapshot_falls_back_to_terms(semantic_finder: lis
     assert not app.exception, app.exception
     assert any("otra instantánea" in i.value for i in app.info)
     assert "Laboratorios afines" in [s.value for s in app.subheader]
+    assert semantic_finder == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_a_broken_index_falls_back_to_terms(semantic_finder: list[str]) -> None:
+    import common
+
+    path = common.DATA / "title_embeddings.parquet"
+    pl.read_parquet(path).drop("title").write_parquet(path)
+    app = search_finder(open_page("encuentra"), "visión por computadora con redes neuronales")
+    assert not app.exception, app.exception
+    assert any("No se pudo completar la búsqueda semántica" in w.value for w in app.warning)
     assert semantic_finder == []

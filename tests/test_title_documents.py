@@ -20,14 +20,14 @@ def test_theses_are_linked_to_directors_but_not_committee(
     thesis = tables["thesis_titles"].row(0, named=True)
     rows = documents.filter(pl.col("title") == thesis["title"])
     source_theses = tables["thesis_titles"].filter(pl.col("title") == thesis["title"])
+    # Cada director conserva su papel: el comité y los papeles cruzados no entran.
     expected = {
-        person
+        (person, role)
         for row in source_theses.iter_rows(named=True)
-        for person in (row["director_1"], row["director_2"])
+        for role, person in (("Director 1", row["director_1"]), ("Director 2", row["director_2"]))
         if person
     }
-    assert set(rows["person"].drop_nulls()) == expected
-    assert set(rows["role"].drop_nulls()) <= {"Director 1", "Director 2"}
+    assert set(rows.drop_nulls("person").select("person", "role").iter_rows()) == expected
     assert rows["lab"].to_list() == [thesis["lab"]] * rows.height
 
 
