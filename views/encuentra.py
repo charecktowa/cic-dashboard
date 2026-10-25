@@ -421,11 +421,17 @@ la búsqueda local por palabras y pares de palabras.
 
 **Qué significan los resultados.** La afinidad es relativa al resultado mejor posicionado en
 esta búsqueda; no es una probabilidad de éxito ni una evaluación de la calidad del asesor.
-Cada recomendación muestra la obra que más contribuyó a que apareciera. Primero, cada obra
-respalda a una sola persona y a un solo laboratorio, el de quien la dirige o encabeza, para
-que un proyecto con muchos integrantes no llene la lista; los demás pueden aparecer por otra
-obra suya. Si después sobran lugares, una obra ya usada puede respaldar a alguien más, como
-un coasesor que no tiene otra obra relacionada.
+Cada recomendación muestra la obra que más contribuyó a que apareciera, y en **Obras afines**
+hasta cinco de sus trabajos más relacionados con tu idea. Primero, cada obra respalda a una
+sola persona y a un solo laboratorio, el de quien la dirige o encabeza, para que un proyecto
+con muchos integrantes no llene la lista; los demás pueden aparecer por otra obra suya. Si
+después sobran lugares, una obra ya usada puede respaldar a alguien más, como un coasesor que
+no tiene otra obra relacionada.
+
+**El orden.** Va primero quien trabaja tu tema de fondo: cuenta la relevancia de sus tres
+obras más afines, la mejor completa, la segunda a la mitad y la tercera a un cuarto. Así una
+persona con un solo artículo parecido no queda por encima de quien tiene varios, pero dos
+obras poco afines tampoco ganan a una muy cercana.
 
 En la búsqueda semántica, si ningún título del catálogo menciona una palabra de tu idea de 6
 letras o más, la página lo dice.
