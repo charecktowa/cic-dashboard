@@ -902,3 +902,71 @@ def test_finder_lists_up_to_five_related_works(
         lines = expander.text[0].value.splitlines()
         assert lines == [f"• {work}" for work in row["related"]]
         assert 1 <= len(lines) <= 5
+
+
+@pytest.fixture
+def neighbor_chat(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Un chat falso que propone un área con trabajos en el catálogo falso y otra sin ellos."""
+    import idea_assistant
+
+    asked: list[str] = []
+
+    def chat_json(instructions: str, prompt: str) -> dict:
+        asked.append(prompt)
+        return {
+            "sugerencias": [
+                {"tema": "Redes neuronales", "busqueda": "deep learning y redes neuronales"},
+                {"tema": "Sin trabajos", "busqueda": "prótesis para odontología pediátrica"},
+            ]
+        }
+
+    monkeypatch.setattr(idea_assistant, "chat_json", chat_json)
+    return asked
+
+
+@pytest.mark.usefixtures("tables")
+def test_neighbor_areas_are_opt_in_and_launch_a_search(
+    semantic_finder: list[str], neighbor_chat: list[str]
+) -> None:
+    import streamlit as st
+
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
+    assert not app.exception, app.exception
+    # El chat no se llama hasta que el visitante lo pide.
+    assert neighbor_chat == []
+    ask = next(b for b in app.button if "Sugerir áreas cercanas" in b.label)
+    ask.click().run()
+    assert len(neighbor_chat) == 1 and "odontología" in neighbor_chat[0]
+    # Solo la sugerencia con trabajos en el catálogo se ofrece.
+    offered = [b for b in app.button if str(b.key).startswith("neighbor-")]
+    assert [b.label for b in offered] == ["Redes neuronales"]
+    sent = len(semantic_finder)
+    offered[0].click().run()
+    assert not app.exception, app.exception
+    # La búsqueda nueva usa la sugerencia y sí llama a la API.
+    assert app.session_state["idea"] == "deep learning y redes neuronales"
+    assert len(semantic_finder) > sent
+
+
+@pytest.mark.usefixtures("tables")
+def test_no_neighbor_button_when_every_word_is_covered(
+    semantic_finder: list[str], neighbor_chat: list[str]
+) -> None:
+    app = search_finder(open_page("encuentra"), "deep learning y redes neuronales")
+    assert not [b for b in app.button if "Sugerir áreas cercanas" in b.label]
+
+
+@pytest.mark.usefixtures("tables")
+def test_neighbor_areas_count_toward_the_limits(
+    semantic_finder: list[str], neighbor_chat: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from search_limits import SearchLimiter
+
+    app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
+    # La búsqueda pasó; para cuando pide sugerencias, el sitio ya llegó a su tope.
+    monkeypatch.setattr(SearchLimiter, "allow", lambda self, client: "hora")
+    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    assert not app.exception, app.exception
+    assert neighbor_chat == []
+    assert any("límite de búsquedas por hora" in i.value for i in app.info)

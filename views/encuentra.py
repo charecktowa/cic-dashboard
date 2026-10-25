@@ -26,12 +26,14 @@ from common import (
 from dashscope_client import (
     MAX_QUERY_CHARS,
     MAX_RERANK_DOCUMENTS,
+    ChatError,
     EmbeddingError,
     RerankError,
     embed_query,
     is_configured,
     rerank_titles,
 )
+from idea_assistant import Suggestion, neighbor_areas
 from search_limits import SEARCHES_AT_ONCE, SearchLimiter, client_key
 from semantic_search import (
     EVIDENCE_LIMIT,
@@ -137,6 +139,8 @@ class Results:
     semantic: bool
     # (tipo, texto, ícono), con tipo "info" o "warning", para mostrar sobre los resultados.
     notices: list[tuple[str, str, str]]
+    # Las palabras de la idea que ningún título menciona, como las escribió el visitante.
+    uncovered: tuple[str, ...] = ()
 
 
 def as_written(query: str, term: str) -> str:
@@ -206,16 +210,45 @@ def run_search(query: str) -> Results:
             "coincidencia de términos."
         )
         return term_results(query, [("warning", warning, ":material/cloud_off:")])
-    missing = [
-        f"«{as_written(query, term)}»" for term in uncovered_words(query, index.corpus, variants)
-    ]
-    if missing:
+    uncovered = tuple(
+        as_written(query, term) for term in uncovered_words(query, index.corpus, variants)
+    )
+    if uncovered:
+        missing = ", ".join(f"«{word}»" for word in uncovered)
         info = (
-            f"Ningún título del catálogo menciona {', '.join(missing)}. Las sugerencias se basan "
-            "en el resto de tu idea y en temas parecidos: tómalas como un punto de partida."
+            f"Ningún título del catálogo menciona {missing}. Las sugerencias se basan en el "
+            "resto de tu idea y en temas parecidos: tómalas como un punto de partida."
         )
         notices.append(("info", info, ":material/search_off:"))
-    return Results(query, recognized_terms(query), labs, people, variants, True, notices)
+    return Results(query, recognized_terms(query), labs, people, variants, True, notices, uncovered)
+
+
+@st.cache_data(ttl=3600, max_entries=128, show_spinner=False)
+def cached_neighbors(query: str, uncovered: tuple[str, ...], version: int) -> list[Suggestion]:
+    """Las áreas vecinas de una idea; `version` las renueva si cambia el índice."""
+    return neighbor_areas(query, list(uncovered), title_index(version).corpus)
+
+
+def suggest_neighbors(results: Results) -> None:
+    """Pide al chat las áreas vecinas, si caben en los topes, y las guarda en la sesión."""
+    version = index_version()
+    limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
+    if limit or version is None:
+        st.session_state["neighbors"] = (results.query, LIMIT_MESSAGES.get(limit or "", ""), [])
+        return
+    try:
+        # Sin spinner: un callback dibuja arriba de la página, no junto al botón.
+        with search_slots():
+            found = cached_neighbors(results.query, results.uncovered, version)
+    except ChatError:
+        found = []
+    st.session_state["neighbors"] = (results.query, "", found)
+
+
+def search_neighbor(query: str) -> None:
+    """Lanza la búsqueda de un área vecina como si el visitante la hubiera escrito."""
+    st.session_state["idea"] = query
+    st.session_state["pending_search"] = query
 
 
 st.title("Encuentra tu laboratorio y tu asesor")
@@ -255,6 +288,8 @@ if submitted:
         footer()
         st.stop()
     st.session_state["results"] = run_search(idea.strip())
+elif pending := st.session_state.pop("pending_search", None):
+    st.session_state["results"] = run_search(pending)
 
 results: Results | None = st.session_state.get("results")
 if results is None:
@@ -276,6 +311,37 @@ if idea.strip() != query:
     )
 for kind, message, icon in results.notices:
     (st.warning if kind == "warning" else st.info)(message, icon=icon)
+
+# El chat solo se llama si el visitante lo pide: sin clic, no hay costo.
+if results.semantic and results.uncovered:
+    asked, limit_message, neighbors = st.session_state.get("neighbors", ("", "", []))
+    if asked != query:
+        st.button(
+            "Sugerir áreas cercanas que sí están en el catálogo (IA)",
+            icon=":material/auto_awesome:",
+            on_click=suggest_neighbors,
+            args=(results,),
+        )
+    elif limit_message:
+        st.info(f"{limit_message}; intenta más tarde.", icon=":material/hourglass_top:")
+    elif not neighbors:
+        st.info(
+            "No encontramos un área cercana con trabajos en el catálogo. Prueba con otras "
+            "palabras de tu idea.",
+            icon=":material/search_off:",
+        )
+    else:
+        st.markdown("**Áreas cercanas con trabajos en el CIC** · sugeridas por IA")
+        with st.container(horizontal=True, gap="small"):
+            for number, suggestion in enumerate(neighbors):
+                st.button(
+                    suggestion.topic,
+                    key=f"neighbor-{number}",
+                    help=suggestion.query,
+                    icon=":material/travel_explore:",
+                    on_click=search_neighbor,
+                    args=(suggestion.query,),
+                )
 
 term_counts = dict(load("term_df").iter_rows())
 ignored = [term for term in text.terms(query) if " " not in term and term not in recognized]
