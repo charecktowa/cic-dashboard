@@ -871,3 +871,15 @@ def test_finder_says_when_no_title_mentions_a_word(semantic_finder: list[str]) -
     notices = [i.value for i in app.info if "Ningún título del catálogo menciona" in i.value]
     # Con su acento, como la escribió el visitante.
     assert notices and "«odontología»" in notices[0]
+
+
+@pytest.mark.usefixtures("tables")
+def test_finder_lists_up_to_five_related_works(semantic_finder: list[str]) -> None:
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    assert not app.exception, app.exception
+    lists = [e for e in app.expander if e.label.startswith("Obras afines")]
+    assert lists
+    for related in lists:
+        lines = [t.value for t in related.text][0].splitlines()
+        assert 1 <= len(lines) <= 5
+        assert all(line.startswith("• ") and " · " in line for line in lines)

@@ -365,8 +365,15 @@ for start in range(0, len(people_rows), 2):
             if semantic:
                 st.caption("Obra más afín")
                 st.text(f"{row['evidence_source']}: {row['evidence_title']}")
-                evidence = count_label(row["evidence_count"], "título")
-                st.caption(f"Evidencia relacionada: {evidence}")
+                total = row["evidence_count"]
+                with st.expander(f"Obras afines ({total})", icon=":material/library_books:"):
+                    # Texto plano: un título con * o _ no debe volverse formato.
+                    st.text("\n".join(f"• {work}" for work in row["related"]))
+                    if total > len(row["related"]):
+                        st.caption(
+                            f"Los {len(row['related'])} más afines de "
+                            f"{count_label(total, 'título')} relacionados con tu idea."
+                        )
             else:
                 st.caption(f"En común contigo: {row['matched']}")
             if st.button(
