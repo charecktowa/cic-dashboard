@@ -1072,8 +1072,15 @@ def summary_chat(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return asked
 
 
-def open_first_profile(app: AppTest) -> AppTest:
-    next(b for b in app.button if str(b.key).startswith("open-")).click().run()
+def open_first_profile(app: AppTest, *, fit: bool = True) -> AppTest:
+    """Abre el primer perfil; con `fit`, también el desplegable del resumen con IA.
+
+    AppTest no sabe abrir un desplegable: se marca abierto en la sesión, por su clave.
+    """
+    opener = next(b for b in app.button if str(b.key).startswith("open-"))
+    if fit:
+        app.session_state[f"fit-{str(opener.key).removeprefix('open-')}"] = True
+    opener.click().run()
     assert not app.exception, app.exception
     return app
 
@@ -1088,7 +1095,7 @@ def test_profile_from_the_finder_explains_the_fit(
     app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
     assert summary_chat == []
     open_first_profile(app)
-    assert any("Por qué podría encajar" in m.value for m in app.markdown)
+    assert any("Por qué podría encajar" in e.label for e in app.expander)
     shown = [t.value for t in app.text]
     assert "Trabaja temas cercanos a tu idea [1]." in shown
     # La obra seleccionada y la lista citada usan los mismos números que recibió el chat.
@@ -1184,8 +1191,23 @@ def test_a_new_index_asks_the_ai_helpers_again(
 @pytest.mark.usefixtures("tables")
 def test_profile_from_the_term_search_has_no_ai_summary(summary_chat: list[str]) -> None:
     app = open_first_profile(search_finder(open_page("encuentra"), "deep learning"))
-    assert not any("Por qué podría encajar" in m.value for m in app.markdown)
+    assert not any("Por qué podría encajar" in e.label for e in app.expander)
     assert summary_chat == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_the_fit_summary_waits_closed_until_asked(
+    semantic_finder: list[str], summary_chat: list[str]
+) -> None:
+    import streamlit as st
+
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    open_first_profile(app, fit=False)
+    # El desplegable está, cerrado, y sin abrirlo no se llama al chat ni se gasta cupo.
+    assert any("Por qué podría encajar" in e.label for e in app.expander)
+    assert summary_chat == []
+    assert "Trabaja temas cercanos a tu idea [1]." not in [t.value for t in app.text]
 
 
 @pytest.mark.usefixtures("tables")

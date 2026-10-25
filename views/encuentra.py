@@ -323,12 +323,27 @@ def forget_summary(key: tuple[str, str, int | None]) -> None:
 
 
 def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
-    """Por qué esta persona encaja con la idea. Solo aparece al abrir su perfil desde aquí.
+    """Por qué esta persona encaja con la idea. Solo aparece en su perfil abierto desde aquí.
 
-    Se guarda en la sesión: interactuar dentro del diálogo no vuelve a llamar al chat ni a
-    contar en los topes. Un tope o una falla también se guardan, como Failure, pero con un
-    botón para reintentar.
+    Va en un desplegable cerrado: en un teléfono no tapa la ficha que sigue abajo, y el chat
+    solo se llama si el visitante lo abre. Se guarda en la sesión: interactuar dentro del
+    diálogo no vuelve a llamar al chat ni a contar en los topes. Un tope o una falla también
+    se guardan, como Failure, pero con un botón para reintentar.
     """
+    fit = st.expander(
+        "Por qué podría encajar con tu idea · resumen con IA",
+        icon=":material/auto_awesome:",
+        key=f"fit-{person}",
+        on_change="rerun",
+    )
+    if not fit.open:
+        return
+    with fit:
+        show_fit(query, person, works)
+
+
+def show_fit(query: str, person: str, works: tuple[str, ...]) -> None:
+    """El contenido del desplegable: pide el resumen una vez y lo muestra."""
     stored: dict[tuple[str, str, int | None], Summary | Failure | None] = (
         st.session_state.setdefault("summaries", {})
     )
@@ -350,31 +365,29 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
                 log.info("resumen con IA: falla del chat")
                 stored[key] = Failure(UNAVAILABLE)
     summary = stored[key]
-    with st.container(border=True):
-        st.markdown("**Por qué podría encajar con tu idea**")
-        if isinstance(summary, Summary):
-            # Texto plano: lo escribió un modelo y no debe interpretarse como formato.
-            st.text(summary.text)
-            st.caption("Obra seleccionada")
-            st.text(f"[{summary.work}] {works[summary.work - 1]}")
-            st.caption("Sus obras afines, numeradas")
-            st.text("\n".join(f"[{number}] {work}" for number, work in enumerate(works, start=1)))
-            st.caption(
-                "Resumen generado por IA (Qwen) a partir de sus obras afines a tu idea; cada "
-                "número entre corchetes es una de las obras de la lista. Puede equivocarse: "
-                "revisa sus trabajos antes de escribirle."
-            )
-        elif isinstance(summary, Failure):
-            st.caption(f"{summary.message}.")
-            st.button(
-                "Reintentar el resumen",
-                icon=":material/refresh:",
-                on_click=forget_summary,
-                args=(key,),
-            )
-        else:
-            # El modelo respondió, pero sin un resumen que cite sus obras: no se reintenta.
-            st.caption("No pudimos generar un resumen confiable para esta persona.")
+    if isinstance(summary, Summary):
+        # Texto plano: lo escribió un modelo y no debe interpretarse como formato.
+        st.text(summary.text)
+        st.caption("Obra seleccionada")
+        st.text(f"[{summary.work}] {works[summary.work - 1]}")
+        st.caption("Sus obras afines, numeradas")
+        st.text("\n".join(f"[{number}] {work}" for number, work in enumerate(works, start=1)))
+        st.caption(
+            "Resumen generado por IA (Qwen) a partir de sus obras afines a tu idea; cada "
+            "número entre corchetes es una de las obras de la lista. Puede equivocarse: "
+            "revisa sus trabajos antes de escribirle."
+        )
+    elif isinstance(summary, Failure):
+        st.caption(f"{summary.message}.")
+        st.button(
+            "Reintentar el resumen",
+            icon=":material/refresh:",
+            on_click=forget_summary,
+            args=(key,),
+        )
+    else:
+        # El modelo respondió, pero sin un resumen que cite sus obras: no se reintenta.
+        st.caption("No pudimos generar un resumen confiable para esta persona.")
 
 
 def search_neighbor(query: str) -> None:
@@ -411,7 +424,7 @@ with st.form("finder"):
         st.caption(
             "Al buscar, tu idea y hasta 100 títulos públicos se envían a Alibaba Cloud para "
             "calcular similitud y ordenar los resultados; también al pedir áreas cercanas o al "
-            "abrir un perfil, para resumir con IA por qué encaja. No incluyas información "
+            "abrir, en un perfil, el resumen con IA de por qué encaja. No incluyas información "
             "personal o confidencial."
         )
     submitted = st.form_submit_button("Buscar afinidades", type="primary", icon=":material/search:")
@@ -652,9 +665,10 @@ letras o más, la página lo dice.
 **Lo que hace la IA.** Dos ayudas usan un modelo de lenguaje (Qwen3.7 Flash), y solo cuando
 las pides. Si una palabra de tu idea no tiene trabajos, el botón *Sugerir áreas cercanas*
 propone hasta tres áreas que sí tienen títulos en el catálogo; cada una se comprueba antes de
-mostrarse. Al abrir el perfil de una persona desde aquí, un resumen de 3 a 5 oraciones explica
-por qué podría encajar con tu idea y cita sus obras afines por número, como [1] o [2][3], con
-la lista debajo; solo usa esos títulos, y cada cita y la obra señalada siempre son de ella.
+mostrarse. En el perfil de una persona abierto desde aquí, el desplegable *Por qué podría
+encajar con tu idea* da un resumen de 3 a 5 oraciones que cita sus obras afines por número,
+como [1] o [2][3], con la lista debajo; solo usa esos títulos, y cada cita y la obra señalada
+siempre son de ella.
 Ambas pueden equivocarse: revisa los trabajos antes de escribirle a alguien.
 
 **Limitaciones.** Solo se leen títulos, no resúmenes. Las tesis se vinculan con Director 1 y
