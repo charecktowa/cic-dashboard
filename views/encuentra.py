@@ -289,7 +289,7 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
             st.text(summary.text)
             st.caption("Obra seleccionada")
             st.text(f"[{summary.work}] {works[summary.work - 1]}")
-            st.caption("Obras citadas")
+            st.caption("Sus obras afines, numeradas")
             st.text("\n".join(f"[{number}] {work}" for number, work in enumerate(works, start=1)))
             st.caption(
                 "Resumen generado por IA (Qwen) a partir de sus obras afines a tu idea; cada "
