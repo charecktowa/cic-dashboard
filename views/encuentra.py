@@ -365,8 +365,15 @@ for start in range(0, len(people_rows), 2):
             if semantic:
                 st.caption("Obra más afín")
                 st.text(f"{row['evidence_source']}: {row['evidence_title']}")
-                evidence = count_label(row["evidence_count"], "título")
-                st.caption(f"Evidencia relacionada: {evidence}")
+                total = row["evidence_count"]
+                with st.expander(f"Obras afines ({total})", icon=":material/library_books:"):
+                    # Texto plano: un título con * o _ no debe volverse formato.
+                    st.text("\n".join(f"• {work}" for work in row["related"]))
+                    if total > len(row["related"]):
+                        st.caption(
+                            f"Los {len(row['related'])} más afines de "
+                            f"{count_label(total, 'título')} relacionados con tu idea."
+                        )
             else:
                 st.caption(f"En común contigo: {row['matched']}")
             if st.button(
@@ -414,11 +421,19 @@ la búsqueda local por palabras y pares de palabras.
 
 **Qué significan los resultados.** La afinidad es relativa al resultado mejor posicionado en
 esta búsqueda; no es una probabilidad de éxito ni una evaluación de la calidad del asesor.
-Cada recomendación muestra la obra que más contribuyó a que apareciera. Primero, cada obra
-respalda a una sola persona y a un solo laboratorio, el de quien la dirige o encabeza, para
-que un proyecto con muchos integrantes no llene la lista; los demás pueden aparecer por otra
-obra suya. Si después sobran lugares, una obra ya usada puede respaldar a alguien más, como
-un coasesor que no tiene otra obra relacionada.
+Cada recomendación muestra la obra por la que esa persona entró a la lista: casi siempre su
+obra más afín, salvo cuando esa obra ya respaldó a otra persona y entra por la siguiente. En
+**Obras afines** están hasta cinco de sus trabajos más relacionados con tu idea, del más afín
+al menos. Primero, cada obra respalda a una
+sola persona y a un solo laboratorio, el de quien la dirige o encabeza, para que un proyecto
+con muchos integrantes no llene la lista; los demás pueden aparecer por otra obra suya. Si
+después sobran lugares, una obra ya usada puede respaldar a alguien más, como un coasesor que
+no tiene otra obra relacionada.
+
+**El orden.** Va primero quien trabaja tu tema de fondo: cuenta la relevancia de sus tres
+obras más afines, la mejor completa, la segunda a la mitad y la tercera a un cuarto. Así una
+persona con un solo artículo parecido no queda por encima de quien tiene varios, pero dos
+obras poco afines tampoco ganan a una muy cercana.
 
 En la búsqueda semántica, si ningún título del catálogo menciona una palabra de tu idea de 6
 letras o más, la página lo dice.

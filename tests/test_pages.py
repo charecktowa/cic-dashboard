@@ -871,3 +871,34 @@ def test_finder_says_when_no_title_mentions_a_word(semantic_finder: list[str]) -
     notices = [i.value for i in app.info if "Ningún título del catálogo menciona" in i.value]
     # Con su acento, como la escribió el visitante.
     assert notices and "«odontología»" in notices[0]
+
+
+@pytest.mark.usefixtures("tables")
+def test_finder_lists_up_to_five_related_works(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import semantic_search
+
+    # Lo que recommend() le entrega a la página, para compararlo con lo que se muestra.
+    advisors: list[pl.DataFrame] = []
+    original = semantic_search.recommend
+
+    def recorded(*args: object, **kwargs: object) -> pl.DataFrame:
+        result = original(*args, **kwargs)  # type: ignore[arg-type]
+        if kwargs.get("group_by") == "person":
+            advisors.append(result)
+        return result
+
+    monkeypatch.setattr(semantic_search, "recommend", recorded)
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    assert not app.exception, app.exception
+    shown = [e for e in app.expander if e.label.startswith("Obras afines")]
+    (people,) = advisors
+    cards = people.head(len(shown))
+    assert shown and len(shown) == min(5, people.height)
+    for expander, row in zip(shown, cards.iter_rows(named=True), strict=True):
+        # Cada tarjeta, en orden, muestra las obras afines de su asesor, de la mejor a la peor.
+        assert expander.label == f"Obras afines ({row['evidence_count']})"
+        lines = expander.text[0].value.splitlines()
+        assert lines == [f"• {work}" for work in row["related"]]
+        assert 1 <= len(lines) <= 5
