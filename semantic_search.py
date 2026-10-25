@@ -14,6 +14,14 @@ import text
 from dashscope_client import DIMENSION, MODEL
 
 EVIDENCE_LIMIT = 100
+# La profundidad de un asesor suma la relevancia de sus DEPTH obras más afines, la mejor
+# completa, la segunda a la mitad y la tercera a un cuarto: premia a quien trabaja el tema de
+# fondo, sin que gane por tener cientos de títulos ni que dos obras flojas superen a una muy
+# afín (0.50 + 0.49 / 2 < 0.95).
+DEPTH = 3
+DEPTH_DECAY = 0.5
+# Cuántas obras afines se muestran por asesor o laboratorio.
+RELATED_SHOWN = 5
 INDEX_COLUMNS = {"title_id", "title", "embedding", "model", "dimension", "source", "person", "lab"}
 RRF_K = 60
 BM25_K1 = 1.5
@@ -292,17 +300,20 @@ def recommend(
 ) -> pl.DataFrame:
     """Agrupa los títulos más relevantes por persona o laboratorio.
 
-    Se recorren las obras de la mejor posicionada (el menor `rank`) hacia abajo, y cada obra
-    respalda a un solo grupo nuevo: el de papel más directo (ROLE_ORDER). Así una obra con
-    varios integrantes no llena la lista y los demás pueden entrar por otra obra suya. Si al
-    final sobran lugares, se llenan reutilizando obras, en el mismo orden. Quien tiene más
-    registros no acumula ventaja por volumen. La obra que lo justificó queda como evidencia.
+    Primero se eligen candidatos: se recorren las obras de la mejor posicionada (el menor
+    `rank`) hacia abajo, y cada obra respalda a un solo grupo nuevo, el de papel más directo
+    (ROLE_ORDER). Así una obra con varios integrantes no llena la lista y los demás pueden
+    entrar por otra obra suya; si sobran lugares, se llenan reutilizando obras. Luego los
+    candidatos se ordenan por profundidad: la relevancia de sus DEPTH obras más afines, con
+    descuento (DEPTH_DECAY) para cada obra después de la mejor, para que quien trabaja el
+    tema de fondo quede arriba de quien tiene una sola obra parecida. La obra que lo hizo
+    candidato queda como evidencia, y sus RELATED_SHOWN obras más afines, en `related`.
     """
     if group_by not in {"person", "lab"}:
         raise ValueError("group_by debe ser 'person' o 'lab'")
     if limit < 1:
         raise ValueError("limit debe ser positivo")
-    schema = {
+    schema: dict[str, pl.DataType | type[pl.DataType]] = {
         group_by: pl.String,
         "score": pl.Float64,
         "affinity": pl.Float64,
@@ -310,6 +321,7 @@ def recommend(
         "evidence_title": pl.String,
         "evidence_source": pl.String,
         "evidence_count": pl.UInt32,
+        "related": pl.List(pl.String),
     }
     if group_by == "person":
         schema["lab"] = pl.String
@@ -328,37 +340,51 @@ def recommend(
     if links.is_empty():
         return pl.DataFrame(schema=schema)
 
+    # El doble de candidatos de los que se muestran: la profundidad decide quiénes quedan.
+    pool = 2 * limit
     chosen: dict[str, dict] = {}
     for _, work in links.group_by("title_id", maintain_order=True):
         newcomer = next((r for r in work.iter_rows(named=True) if r[group_by] not in chosen), None)
         if newcomer is not None:
             chosen[newcomer[group_by]] = newcomer
-        if len(chosen) == limit:
+        if len(chosen) == pool:
             break
     # Lugares libres: quienes solo aparecen en obras ya usadas, en el orden de esas obras.
     for row in links.iter_rows(named=True):
-        if len(chosen) == limit:
+        if len(chosen) == pool:
             break
         chosen.setdefault(row[group_by], row)
     order = {key: position for position, key in enumerate(chosen)}
 
     extra = {"lab": pl.col("lab").drop_nulls().first()} if group_by == "person" else {}
-    counts = links.group_by(group_by).agg(
-        evidence_count=pl.col("title_id").n_unique().cast(pl.UInt32), **extra
+    by_relevance = links.unique(subset=["title_id", group_by], keep="first").sort(
+        ["score", "rank"], descending=[True, False]
+    )
+    position = pl.int_range(pl.len()).over(group_by)
+    stats = (
+        by_relevance.with_columns(
+            weight=pl.when(position < DEPTH).then(DEPTH_DECAY**position).otherwise(0.0)
+        )
+        .group_by(group_by)
+        .agg(
+            depth=(pl.col("score") * pl.col("weight")).sum(),
+            evidence_count=pl.col("title_id").n_unique().cast(pl.UInt32),
+            related=(pl.col("source") + pl.lit(" · ") + pl.col("title")).head(RELATED_SHOWN),
+            **extra,
+        )
     )
     evidence = pl.DataFrame(
-        [(key, row["score"], row["title"], row["source"]) for key, row in chosen.items()],
-        schema={
-            group_by: pl.String,
-            "score": pl.Float64,
-            "evidence_title": pl.String,
-            "evidence_source": pl.String,
-        },
+        [(key, row["title"], row["source"]) for key, row in chosen.items()],
+        schema={group_by: pl.String, "evidence_title": pl.String, "evidence_source": pl.String},
         orient="row",
     )
     grouped = (
-        evidence.join(counts, on=group_by, how="left")
-        .sort(pl.col(group_by).replace_strict(order, return_dtype=pl.UInt32))
+        evidence.join(stats, on=group_by, how="left")
+        .with_columns(order=pl.col(group_by).replace_strict(order, return_dtype=pl.UInt32))
+        .sort(["depth", "order"], descending=[True, False])
+        .head(limit)
+        .drop("order")
+        .rename({"depth": "score"})
         .with_columns(matched=pl.col("evidence_source") + pl.lit(" · ") + pl.col("evidence_title"))
     )
     top = cast(float, grouped["score"].max() or 0.0)

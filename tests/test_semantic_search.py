@@ -93,18 +93,24 @@ def test_one_work_backs_one_person_the_most_direct_role() -> None:
     people = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person", limit=3)
     # El proyecto lo representa su responsable técnico; las otras dos personas entran por su
     # tesis, y el proyecto no se lleva los tres lugares.
-    assert people.select("person", "evidence_title").rows() == [
-        ("Responsable", SHARED),
-        ("Colaboradora", "Segmentación de radiografías"),
-        ("Otro colaborador", "Clasificación de imágenes"),
-    ]
+    evidence = dict(people.select("person", "evidence_title").iter_rows())
+    assert evidence == {
+        "Responsable": SHARED,
+        "Colaboradora": "Segmentación de radiografías",
+        "Otro colaborador": "Clasificación de imágenes",
+    }
+    # Con dos obras afines (el proyecto y su tesis), Colaboradora va antes que Responsable,
+    # que solo tiene el proyecto.
+    assert people["person"].to_list() == ["Colaboradora", "Otro colaborador", "Responsable"]
     assert people["affinity"].n_unique() == 3
 
 
 def test_one_work_backs_one_lab() -> None:
     index = prepare_index(shared_work_frame())
-    labs = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="lab", limit=2)
-    assert labs["lab"].to_list() == ["Responsable", "Colaboradora"]
+    labs = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="lab", limit=3)
+    # Cada obra metió a un laboratorio distinto como candidato.
+    assert set(labs["lab"]) == {"Responsable", "Colaboradora", "Otro colaborador"}
+    assert labs["affinity"].to_list()[0] == 100
     assert labs["affinity"].to_list()[1] < 100
 
 
@@ -284,3 +290,67 @@ def test_a_lab_keeps_its_most_direct_member_of_a_work() -> None:
     labs = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="lab", limit=1)
     # El responsable técnico de X es el papel más directo: X representa la obra, no Y.
     assert labs["lab"].to_list() == ["X"]
+
+
+def depth_frame() -> pl.DataFrame:
+    """Una persona con una sola obra muy afín y otra con tres obras afines un poco menos."""
+    rows = [
+        ("u", "Detección de cáncer de mama", "Artículo", "Una obra", [1.0, 0.0]),
+        ("d1", "Mamografías con redes profundas", "Tesis", "De fondo", [0.97, 0.243]),
+        ("d2", "Clasificación de tumores", "Tesis", "De fondo", [0.95, 0.312]),
+        ("d3", "Segmentación de lesiones", "Proyecto", "De fondo", [0.93, 0.367]),
+    ]
+    columns = ["title_id", "title", "source", "person", "embedding"]
+    return pl.DataFrame(rows, schema=columns, orient="row").with_columns(
+        lab=pl.col("person"), model=pl.lit("qwen3.7-text-embedding"), dimension=pl.lit(1024)
+    )
+
+
+def test_depth_puts_who_works_the_topic_above_a_single_close_work() -> None:
+    index = prepare_index(depth_frame())
+    people = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person")
+    # "Una obra" tiene el título más parecido, pero "De fondo" tiene tres obras afines.
+    assert people["person"].to_list() == ["De fondo", "Una obra"]
+    related = people.filter(pl.col("person") == "De fondo")["related"][0].to_list()
+    assert related == [
+        "Tesis · Mamografías con redes profundas",
+        "Tesis · Clasificación de tumores",
+        "Proyecto · Segmentación de lesiones",
+    ]
+
+
+def test_depth_does_not_let_weak_works_beat_a_very_close_one() -> None:
+    ranked = pl.DataFrame(
+        {
+            "title_id": ["fuerte", "flojo1", "flojo2"],
+            "title": ["Muy afín", "Algo afín", "Algo afín 2"],
+            "rank": [1, 2, 3],
+            "score": [0.95, 0.5, 0.49],
+        }
+    )
+    frame = pl.DataFrame(
+        {
+            "title_id": ["fuerte", "flojo1", "flojo2"],
+            "title": ["Muy afín", "Algo afín", "Algo afín 2"],
+            "source": ["Tesis"] * 3,
+            "person": ["Una obra", "Dos flojas", "Dos flojas"],
+            "lab": ["A", "B", "B"],
+            "embedding": [[1.0, 0.0]] * 3,
+            "model": ["qwen3.7-text-embedding"] * 3,
+            "dimension": [1024] * 3,
+        }
+    )
+    people = recommend(prepare_index(frame), ranked, group_by="person")
+    # 0.95 contra 0.50 + 0.49 / 2: la obra muy afín sigue arriba.
+    assert people["person"].to_list() == ["Una obra", "Dos flojas"]
+
+
+def test_related_works_are_at_most_five() -> None:
+    rows = [(f"t{i}", f"Título {i}", "Artículo", "Prolífica", [1.0, i / 100]) for i in range(8)]
+    frame = pl.DataFrame(
+        rows, schema=["title_id", "title", "source", "person", "embedding"], orient="row"
+    ).with_columns(lab=pl.lit("L"), model=pl.lit("qwen3.7-text-embedding"), dimension=pl.lit(1024))
+    index = prepare_index(frame)
+    people = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person")
+    assert people["evidence_count"][0] == 8
+    assert len(people["related"][0]) == 5
