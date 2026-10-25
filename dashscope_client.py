@@ -21,6 +21,7 @@ HOST = "https://ap-southeast-1.maas.qwencloudapi.com"
 BASE_URL = f"{HOST}/api/v1"
 # El chat vive en la ruta compatible con OpenAI del mismo servidor y con la misma llave.
 CHAT_URL = f"{HOST}/compatible-mode/v1"
+CHAT_PATH = "chat/completions"
 # Barato y rápido: ~$0.03 por millón de tokens de entrada y $0.13 de salida.
 CHAT_MODEL = "qwen3.7-flash"
 # Lo que una respuesta puede gastar como máximo: unas pocas frases en JSON.
@@ -269,16 +270,16 @@ def chat_json(instructions: str, prompt: str) -> dict[str, Any]:
         "max_tokens": CHAT_MAX_TOKENS,
     }
     try:
-        reply = post("chat/completions", body, api_key, base=CHAT_URL)
+        reply = post(CHAT_PATH, body, api_key, base=CHAT_URL)
     except ApiError as error:
         raise ChatError(str(error)) from None
     try:
         content = reply["choices"][0]["message"]["content"]
         answer = json.loads(content)
     except (KeyError, IndexError, TypeError, ValueError):
-        failure("chat/completions", "El chat no devolvió JSON")
+        failure(CHAT_PATH, "El chat no devolvió JSON")
         raise ChatError("El chat no devolvió JSON") from None
     if not isinstance(answer, dict):
-        failure("chat/completions", "El chat no devolvió un objeto JSON")
+        failure(CHAT_PATH, "El chat no devolvió un objeto JSON")
         raise ChatError("El chat no devolvió un objeto JSON")
     return answer
