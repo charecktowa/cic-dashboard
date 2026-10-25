@@ -358,9 +358,10 @@ def recommend(
 
     extra = {"lab": pl.col("lab").drop_nulls().first()} if group_by == "person" else {}
     # Una obra cuenta una vez aunque el catálogo la tenga dos veces con otras mayúsculas,
-    # acentos o puntuación (49 títulos lo están): si no, sumaría doble en la profundidad.
+    # acentos, puntuación o guiones (52 obras lo están): si no, sumaría doble en la
+    # profundidad. "Support-Decisions" y "Support Decisions" son la misma.
     by_relevance = (
-        links.with_columns(work=text.words_expr("title").list.join(" "))
+        links.with_columns(work=text.words_expr("title").list.join(" ").str.replace_all("-", " "))
         .sort(["score", "rank"], descending=[True, False])
         .unique(subset=["work", group_by], keep="first", maintain_order=True)
     )

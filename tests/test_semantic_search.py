@@ -360,6 +360,7 @@ def test_a_work_listed_twice_counts_once() -> None:
     rows = [
         ("a", "SISTEMA PARA DETECTAR CÁNCER.", "Proyecto", "Repetida", [1.0, 0.0]),
         ("b", "Sistema para detectar cancer", "Proyecto", "Repetida", [0.99, 0.141]),
+        ("b2", "Sistema para-detectar cancer", "Congreso", "Repetida", [0.98, 0.199]),
         ("c", "Otra obra afín", "Tesis", "Repetida", [0.9, 0.436]),
     ]
     frame = pl.DataFrame(
@@ -367,6 +368,7 @@ def test_a_work_listed_twice_counts_once() -> None:
     ).with_columns(lab=pl.lit("L"), model=pl.lit("qwen3.7-text-embedding"), dimension=pl.lit(1024))
     index = prepare_index(frame)
     person = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person").row(0, named=True)
-    # El mismo proyecto escrito de dos formas es una obra: dos obras afines, no tres.
+    # El mismo proyecto escrito de tres formas (mayúsculas, acentos, guion) es una obra: dos
+    # obras afines, no cuatro.
     assert person["evidence_count"] == 2
     assert len(person["related"]) == 2
