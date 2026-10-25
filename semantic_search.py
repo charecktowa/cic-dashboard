@@ -41,12 +41,15 @@ def rank_titles(index: pl.DataFrame, query_vector: list[float]) -> pl.DataFrame:
     titles = index.select("title_id", "title").unique(
         subset="title_id", keep="first", maintain_order=True
     )
-    vectors = (
-        index.select("title_id", "embedding")
-        .unique(subset="title_id", keep="first", maintain_order=True)["embedding"]
-        .to_list()
-    )
-    matrix = np.asarray(vectors, dtype=np.float32)
+    embeddings = index.select("title_id", "embedding").unique(
+        subset="title_id", keep="first", maintain_order=True
+    )["embedding"]
+    widths = embeddings.list.len().unique()
+    if widths.len() != 1 or widths[0] is None:
+        raise ValueError("Los vectores del índice no tienen todos la misma dimensión")
+    # De Polars a NumPy sin pasar por listas de Python: .to_list() crea un float de Python por
+    # valor, más de 250 MB con el índice real, y el contenedor tiene un límite de 512 MB.
+    matrix = embeddings.list.to_array(widths[0]).to_numpy().astype(np.float32, copy=False)
     query = np.asarray(query_vector, dtype=np.float32)
     if matrix.ndim != 2 or query.ndim != 1 or matrix.shape[1] != query.size:
         raise ValueError("La dimensión del vector de consulta no coincide con el índice")

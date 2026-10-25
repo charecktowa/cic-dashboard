@@ -156,3 +156,11 @@ def test_apply_rerank_reorders_candidates_and_keeps_hybrid_tail() -> None:
     assert result["title_id"].to_list() == ["b", "a", "c"]
     assert result["rank"].to_list() == [1, 2, 3]
     assert result["rerank_score"].to_list() == [0.9, 0.4, None]
+
+
+def test_rank_titles_rejects_vectors_of_different_lengths() -> None:
+    index = index_frame().with_columns(
+        embedding=pl.Series([[1.0, 0.0], [1.0, 0.0], [0.8, 0.6, 0.0], [0.0, 1.0], [-1.0, 0.0]])
+    )
+    with pytest.raises(ValueError, match="misma dimensión"):
+        rank_titles(index, [1.0, 0.0])
