@@ -268,3 +268,19 @@ def test_uncovered_words_are_the_ones_no_title_mentions() -> None:
     variants = lexical_variants(idea, corpus)
     # "malwares" tiene la variante "malware"; "quiero" y "algo" son de relleno.
     assert uncovered_words(idea, corpus, variants) == ["odontologia"]
+
+
+def test_a_lab_keeps_its_most_direct_member_of_a_work() -> None:
+    rows = [
+        ("w", "Obra compartida", "Proyecto", "Colab X", "Colaborador", "X", [1.0, 0.0]),
+        ("w", "Obra compartida", "Proyecto", "Resp X", "Responsable técnico", "X", [1.0, 0.0]),
+        ("w", "Obra compartida", "Proyecto", "Autor Y", "Autor", "Y", [1.0, 0.0]),
+    ]
+    columns = ["title_id", "title", "source", "person", "role", "lab", "embedding"]
+    frame = pl.DataFrame(rows, schema=columns, orient="row").with_columns(
+        model=pl.lit("qwen3.7-text-embedding"), dimension=pl.lit(1024)
+    )
+    index = prepare_index(frame)
+    labs = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="lab", limit=1)
+    # El responsable técnico de X es el papel más directo: X representa la obra, no Y.
+    assert labs["lab"].to_list() == ["X"]

@@ -316,18 +316,18 @@ def recommend(
     if ranked.is_empty() or index.links.is_empty():
         return pl.DataFrame(schema=schema)
 
+    # Se ordena por papel antes de quitar repetidos: si dos integrantes de un laboratorio
+    # firman la misma obra, ese laboratorio la representa con el papel más directo.
     links = (
         index.links.join(ranked.head(EVIDENCE_LIMIT), on="title_id", how="inner")
         .filter(pl.col(group_by).is_not_null())
-        .sort("rank")
+        .with_columns(role_order=pl.col("role").replace_strict(ROLE_ORDER, default=len(ROLE_ORDER)))
+        .sort("rank", "role_order", group_by)
         .unique(subset=["title_id", "source", group_by], keep="first", maintain_order=True)
     )
     if links.is_empty():
         return pl.DataFrame(schema=schema)
 
-    links = links.with_columns(
-        role_order=pl.col("role").replace_strict(ROLE_ORDER, default=len(ROLE_ORDER))
-    ).sort("rank", "role_order", group_by)
     chosen: dict[str, dict] = {}
     for _, work in links.group_by("title_id", maintain_order=True):
         newcomer = next((r for r in work.iter_rows(named=True) if r[group_by] not in chosen), None)
