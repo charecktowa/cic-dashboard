@@ -103,7 +103,10 @@ def cached_ranking(query: str, version: int) -> pl.DataFrame:
 
 @st.cache_resource
 def search_slots() -> threading.BoundedSemaphore:
-    """Cuántas búsquedas semánticas corren a la vez; las demás esperan su turno."""
+    """Cuántas búsquedas semánticas corren a la vez; las demás esperan su turno.
+
+    Solo las búsquedas lo usan: cuida memoria y CPU, y las llamadas al chat no ocupan ninguna.
+    """
     return threading.BoundedSemaphore(SEARCHES_AT_ONCE)
 
 
@@ -248,9 +251,9 @@ def suggest_neighbors(results: Results) -> None:
         st.session_state["neighbors"] = (results.query, LIMIT_MESSAGES.get(limit or "", ""), [])
         return
     try:
-        # Sin spinner: un callback dibuja arriba de la página, no junto al botón.
-        with search_slots():
-            found = cached_neighbors(results.query, results.uncovered, version)
+        # Sin spinner: un callback dibuja arriba de la página, no junto al botón. Sin turno
+        # del semáforo: el chat solo espera la red, y no debe hacer esperar a las búsquedas.
+        found = cached_neighbors(results.query, results.uncovered, version)
     except ChatError:
         found = []
     st.session_state["neighbors"] = (results.query, "", found)
@@ -277,7 +280,9 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
             stored[query, person] = LIMIT_MESSAGES[limit]
         else:
             try:
-                with st.spinner("Resumiendo por qué encaja con tu idea…"), search_slots():
+                # Sin turno del semáforo: el chat solo espera la red (de 3 a 5 s, o hasta el
+                # tiempo límite) y no debe hacer esperar a las búsquedas semánticas.
+                with st.spinner("Resumiendo por qué encaja con tu idea…"):
                     stored[query, person] = cached_summary(query, person, works)
             except ChatError:
                 stored[query, person] = None

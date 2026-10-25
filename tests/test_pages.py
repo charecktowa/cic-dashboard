@@ -1034,3 +1034,46 @@ def test_an_example_fills_the_idea_box() -> None:
     assert not app.exception, app.exception
     # Una caja nueva con el texto del ejemplo: el navegador sí la muestra.
     assert app.text_area[0].value == "robots móviles, control y navegación autónoma"
+
+
+@pytest.mark.usefixtures("tables")
+def test_ai_helpers_do_not_take_search_slots(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    import streamlit as st
+
+    import idea_assistant
+
+    asked: list[str] = []
+
+    def chat_json(instructions: str, prompt: str) -> dict[str, object]:
+        asked.append(prompt)
+        if "Persona:" in prompt:
+            return {"resumen": "Trabaja temas cercanos [1].", "obra": 1}
+        busqueda = "deep learning y redes neuronales"
+        return {"sugerencias": [{"tema": "Redes neuronales", "busqueda": busqueda}]}
+
+    taken: list[str] = []
+
+    class CountingSlots(threading.BoundedSemaphore):
+        def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
+            taken.append("turno")
+            return super().acquire(blocking, timeout)
+
+        # Semaphore define __enter__ = acquire: hay que volver a enlazarlo con la nueva.
+        __enter__ = acquire
+
+    monkeypatch.setattr(idea_assistant, "chat_json", chat_json)
+    # El semáforo se crea de nuevo, ya contando, en la próxima búsqueda.
+    st.cache_resource.clear()
+    st.cache_data.clear()
+    monkeypatch.setattr(threading, "BoundedSemaphore", CountingSlots)
+    app = search_finder(open_page("encuentra"), "redes neuronales para odontología")
+    assert taken == ["turno"]
+    # Pedir áreas cercanas y abrir un perfil llaman al chat sin ocupar turnos de búsqueda.
+    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    open_first_profile(app)
+    assert len(asked) == 2
+    assert taken == ["turno"]
