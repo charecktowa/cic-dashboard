@@ -1,26 +1,36 @@
-"""Cliente mínimo y validado para los embeddings de DashScope."""
+"""Cliente mínimo y validado para los modelos de búsqueda de DashScope."""
 
 import math
 import os
 from collections.abc import Sequence
 from typing import Literal
 
-from dashscope import TextEmbedding
+from dashscope import TextEmbedding, TextReRank
 
 MODEL = "qwen3.7-text-embedding"
+RERANK_MODEL = "qwen3-rerank"
 BASE_URL = "https://ap-southeast-1.maas.qwencloudapi.com/api/v1"
 DIMENSION = 1024
 MAX_BATCH_SIZE = 20
 REQUEST_TIMEOUT = 30
 MAX_QUERY_CHARS = 500
+MAX_RERANK_DOCUMENTS = 100
 QUERY_INSTRUCTION = (
     "Given a research idea, retrieve relevant thesis, research publication, or project titles."
+)
+RERANK_INSTRUCTION = (
+    "Rank research titles by how directly they address the user's research idea. "
+    "Prefer titles about the same task, method, or subject; do not reward superficial word overlap."
 )
 TextType = Literal["query", "document"]
 
 
 class EmbeddingError(RuntimeError):
     """La API de embeddings no está disponible o devolvió una respuesta inválida."""
+
+
+class RerankError(RuntimeError):
+    """La API de reranking no está disponible o devolvió una respuesta inválida."""
 
 
 def is_configured() -> bool:
@@ -85,3 +95,61 @@ def embed_query(text: str) -> list[float]:
     if len(text) > MAX_QUERY_CHARS:
         raise ValueError(f"La consulta no puede superar {MAX_QUERY_CHARS} caracteres")
     return embed_texts([text], text_type="query")[0]
+
+
+def rerank_titles(query: str, titles: Sequence[str]) -> list[tuple[int, float]]:
+    """Ordena títulos candidatos y devuelve sus índices originales y relevancia."""
+    if not query.strip():
+        raise ValueError("La consulta no puede estar vacía")
+    if len(query) > MAX_QUERY_CHARS:
+        raise ValueError(f"La consulta no puede superar {MAX_QUERY_CHARS} caracteres")
+    if not titles:
+        return []
+    if len(titles) > MAX_RERANK_DOCUMENTS:
+        raise ValueError(f"El reranker admite hasta {MAX_RERANK_DOCUMENTS} títulos")
+    if any(not isinstance(title, str) or not title.strip() for title in titles):
+        raise ValueError("Todos los títulos deben ser cadenas no vacías")
+
+    api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+    if not api_key:
+        raise RerankError("Falta configurar DASHSCOPE_API_KEY en el servidor")
+
+    try:
+        response = TextReRank.call(
+            model=RERANK_MODEL,
+            query=query,
+            documents=list(titles),
+            top_n=len(titles),
+            api_key=api_key,
+            base_address=BASE_URL,
+            request_timeout=REQUEST_TIMEOUT,
+            instruct=RERANK_INSTRUCTION,
+        )
+    except Exception:
+        raise RerankError("No se pudo conectar con el servicio de reranking") from None
+
+    if response.status_code != 200:
+        code = getattr(response, "code", None) or "sin código"
+        raise RerankError(f"DashScope respondió con HTTP {response.status_code} ({code})")
+
+    output = response.output
+    results = getattr(output, "results", None)
+    if not isinstance(results, list) or len(results) != len(titles):
+        raise RerankError("DashScope devolvió una cantidad inesperada de resultados")
+
+    ranked: list[tuple[int, float]] = []
+    for result in results:
+        index = getattr(result, "index", None)
+        score = getattr(result, "relevance_score", None)
+        if (
+            not isinstance(index, int)
+            or index < 0
+            or index >= len(titles)
+            or not isinstance(score, (int, float))
+            or not math.isfinite(score)
+        ):
+            raise RerankError("DashScope devolvió un ranking inválido")
+        ranked.append((index, float(score)))
+    if len({index for index, _ in ranked}) != len(titles):
+        raise RerankError("DashScope devolvió índices duplicados")
+    return ranked

@@ -9,11 +9,20 @@ from advisor import profile_dialog
 from common import LABELS, TEAL_SCALE, explain, footer, lab_colors, load, load_optional, match, show
 from dashscope_client import (
     MAX_QUERY_CHARS,
+    MAX_RERANK_DOCUMENTS,
     EmbeddingError,
+    RerankError,
     embed_query,
     is_configured,
+    rerank_titles,
 )
-from semantic_search import hybrid_rank_titles, lexical_variants, recommend, validate_index
+from semantic_search import (
+    apply_rerank,
+    hybrid_rank_titles,
+    lexical_variants,
+    recommend,
+    validate_index,
+)
 
 EXAMPLES = {
     "Noticias falsas": "detección de noticias falsas en redes sociales con lenguaje natural",
@@ -30,6 +39,12 @@ EXAMPLES = {
 def cached_query_embedding(query: str) -> list[float]:
     """Evita repetir la llamada externa si Streamlit vuelve a ejecutar la página."""
     return embed_query(query)
+
+
+@st.cache_data(ttl=3600, max_entries=128, show_spinner=False)
+def cached_title_rerank(query: str, titles: tuple[str, ...]) -> list[tuple[int, float]]:
+    """Evita repetir el reranking cuando Streamlit vuelve a ejecutar la página."""
+    return rerank_titles(query, titles)
 
 
 def use_example() -> None:
@@ -113,6 +128,15 @@ if index is not None and is_configured():
         with st.spinner("Buscando títulos relacionados…"):
             query_vector = cached_query_embedding(query)
             ranked = hybrid_rank_titles(index, query, query_vector)
+            candidate_titles = tuple(ranked.head(MAX_RERANK_DOCUMENTS)["title"].to_list())
+            try:
+                rerank_results = cached_title_rerank(query, candidate_titles)
+                ranked = apply_rerank(ranked, rerank_results)
+            except RerankError:
+                st.warning(
+                    "No se pudo ordenar los títulos con el reranker; usamos el ranking híbrido.",
+                    icon=":material/cloud_off:",
+                )
             labs = recommend(index, ranked, group_by="lab")
             people = recommend(index, ranked, group_by="person")
         semantic = True
@@ -156,7 +180,8 @@ else:
 
 if semantic:
     st.caption(
-        "La idea se envía a Alibaba Cloud para calcular su similitud con los títulos. "
+        "La idea y hasta 100 títulos públicos se envían a Alibaba Cloud para calcular similitud "
+        "y ordenar los resultados. "
         "No incluyas información personal o confidencial."
     )
 
@@ -262,8 +287,10 @@ explain(
     """
 **Qué se compara.** Cuando el índice y la API están disponibles, la idea se transforma en un
 vector que recupera títulos de significado parecido, incluso entre idiomas. BM25 añade
-coincidencias literales para términos técnicos y el ranking combina ambas señales. Si falla
-la búsqueda híbrida, la página conserva la búsqueda local por palabras y pares de palabras.
+coincidencias literales para términos técnicos y el ranking combina ambas señales. Un reranker
+especializado vuelve a ordenar hasta 100 títulos candidatos según su relación con la idea. Si
+el reranker falla, se conserva el ranking híbrido; si falla la búsqueda híbrida, la página usa
+la búsqueda local por palabras y pares de palabras.
 
 **Qué significan los resultados.** La afinidad es relativa al resultado mejor posicionado en
 esta búsqueda; no es una probabilidad de éxito ni una evaluación de la calidad del asesor.

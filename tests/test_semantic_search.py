@@ -4,6 +4,7 @@ import polars as pl
 import pytest
 
 from semantic_search import (
+    apply_rerank,
     bm25_scores,
     hybrid_rank_titles,
     lexical_variants,
@@ -138,3 +139,20 @@ def test_hybrid_ranking_uses_semantic_results_when_bm25_has_no_hits() -> None:
     ranked = hybrid_rank_titles(index, "privacy healthcare", [0.0, 1.0])
     assert ranked["title_id"][0] == "c"
     assert ranked["bm25_score"].sum() == 0
+
+
+def test_apply_rerank_reorders_candidates_and_keeps_hybrid_tail() -> None:
+    ranked = pl.DataFrame(
+        {
+            "title_id": ["a", "b", "c"],
+            "title": ["Título A", "Título B", "Título C"],
+            "rank": [1, 2, 3],
+            "score": [0.03, 0.02, 0.01],
+        }
+    )
+
+    result = apply_rerank(ranked, [(1, 0.9), (0, 0.4)])
+
+    assert result["title_id"].to_list() == ["b", "a", "c"]
+    assert result["rank"].to_list() == [1, 2, 3]
+    assert result["rerank_score"].to_list() == [0.9, 0.4, None]

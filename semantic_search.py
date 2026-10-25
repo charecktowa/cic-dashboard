@@ -167,6 +167,27 @@ def hybrid_rank_titles(index: pl.DataFrame, query: str, query_vector: list[float
     )
 
 
+def apply_rerank(ranked: pl.DataFrame, rerank_results: list[tuple[int, float]]) -> pl.DataFrame:
+    """Reordena la ventana de candidatos conservando el ranking híbrido fuera de ella."""
+    if not rerank_results:
+        return ranked
+    candidate_count = len(rerank_results)
+    if candidate_count > ranked.height:
+        raise ValueError("El reranker devolvió más candidatos que el ranking original")
+    indices = [index for index, _ in rerank_results]
+    if len(set(indices)) != candidate_count or any(
+        index < 0 or index >= candidate_count for index in indices
+    ):
+        raise ValueError("El reranker devolvió índices inválidos")
+
+    order = indices + list(range(candidate_count, ranked.height))
+    scores_by_index = dict(rerank_results)
+    return ranked[order].with_columns(
+        rerank_score=pl.Series([scores_by_index.get(index) for index in order], dtype=pl.Float64),
+        rank=pl.Series(range(1, ranked.height + 1), dtype=pl.UInt32),
+    )
+
+
 def recommend(
     index: pl.DataFrame,
     ranked: pl.DataFrame,
