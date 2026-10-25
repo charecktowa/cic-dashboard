@@ -77,3 +77,41 @@ def test_neighbor_areas_offer_at_most_three(monkeypatch: pytest.MonkeyPatch) -> 
     proposal = {"tema": "Imágenes médicas", "busqueda": "segmentación de imágenes médicas"}
     answering(monkeypatch, {"sugerencias": [proposal] * 6})
     assert len(idea_assistant.neighbor_areas("idea", ["odontologia"], CORPUS)) == 3
+
+
+WORKS = ["Tesis · Segmentación de radiografías", "Artículo · Clasificación de imágenes médicas"]
+
+
+@pytest.mark.parametrize("chosen", [WORKS[1], "Clasificación de imágenes médicas"])
+def test_advisor_summary_points_to_one_of_the_given_works(
+    monkeypatch: pytest.MonkeyPatch, chosen: str
+) -> None:
+    asked = answering(monkeypatch, {"resumen": "Trabaja imágenes médicas.", "obra": chosen})
+    summary = idea_assistant.advisor_summary("diagnóstico dental", "Persona 1", WORKS)
+    assert summary == idea_assistant.Summary("Trabaja imágenes médicas.", WORKS[1])
+    ((_, prompt),) = asked
+    assert "diagnóstico dental" in prompt and all(work in prompt for work in WORKS)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        # Una obra inventada: el resumen no se muestra.
+        {"resumen": "Trabaja imágenes.", "obra": "Detección de caries con IA"},
+        {"resumen": "", "obra": WORKS[0]},
+        {"resumen": "x" * 601, "obra": WORKS[0]},
+        {"resumen": ["Trabaja"], "obra": WORKS[0]},
+        {},
+    ],
+)
+def test_advisor_summary_drops_answers_it_cannot_trust(
+    monkeypatch: pytest.MonkeyPatch, answer: dict[str, Any]
+) -> None:
+    answering(monkeypatch, answer)
+    assert idea_assistant.advisor_summary("idea", "Persona 1", WORKS) is None
+
+
+def test_advisor_summary_needs_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked = answering(monkeypatch, {})
+    assert idea_assistant.advisor_summary("idea", "Persona 1", []) is None
+    assert asked == []

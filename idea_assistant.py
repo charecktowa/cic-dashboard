@@ -77,3 +77,45 @@ def neighbor_areas(idea: str, missing: list[str], corpus: Corpus) -> list[Sugges
         if len(suggestions) == MAX_SUGGESTIONS:
             break
     return suggestions
+
+
+SUMMARY_INSTRUCTIONS = """\
+Explicas a un estudiante por qué una persona asesora del CIC podría encajar con su idea de \
+tesis, usando solo la lista de sus obras que se te da.
+Responde solo un objeto JSON con esta forma:
+{"resumen": "2 o 3 oraciones en español, dirigidas al estudiante", \
+"obra": "el título exacto, copiado de la lista, que más se relaciona con la idea"}
+No inventes obras, cargos, fechas ni datos que no estén en los títulos. Si la relación es \
+parcial, dilo."""
+MAX_SUMMARY_CHARS = 600
+
+
+@dataclass(frozen=True)
+class Summary:
+    """Por qué una persona encaja con la idea, y la obra que mejor lo muestra."""
+
+    text: str
+    work: str
+
+
+def advisor_summary(idea: str, person: str, works: list[str]) -> Summary | None:
+    """Un resumen breve de por qué `person` encaja con la idea, a partir de `works`.
+
+    `works` son títulos tal como se le muestran al visitante ("Tesis · título"). La obra
+    elegida debe ser una de ellas; si no, o si la respuesta tiene otra forma, None. Lanza
+    dashscope_client.ChatError si el modelo no responde.
+    """
+    if not works:
+        return None
+    listed = "\n".join(f"- {work}" for work in works)
+    answer = chat_json(SUMMARY_INSTRUCTIONS, f"Idea: {idea}\nPersona: {person}\nObras:\n{listed}")
+    summary, chosen = answer.get("resumen"), answer.get("obra")
+    if not isinstance(summary, str) or not isinstance(chosen, str):
+        return None
+    summary, chosen = summary.strip(), chosen.strip()
+    if not summary or len(summary) > MAX_SUMMARY_CHARS:
+        return None
+    # La obra se reconoce con o sin su fuente ("Tesis · "); otra cualquiera, se descarta.
+    by_title = {work.split(" · ", 1)[-1]: work for work in works}
+    work = chosen if chosen in works else by_title.get(chosen)
+    return Summary(summary, work) if work else None
