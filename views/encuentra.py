@@ -1,12 +1,27 @@
 """Búsqueda de laboratorios y asesores a partir de una idea de tesis."""
 
+import threading
+from dataclasses import dataclass
+
 import plotly.express as px
 import polars as pl
 import streamlit as st
 
 import text
 from advisor import profile_dialog
-from common import LABELS, TEAL_SCALE, explain, footer, lab_colors, load, load_optional, match, show
+from common import (
+    DATA,
+    LABELS,
+    TEAL_SCALE,
+    count_label,
+    explain,
+    footer,
+    lab_colors,
+    load,
+    match,
+    show,
+    snapshot,
+)
 from dashscope_client import (
     MAX_QUERY_CHARS,
     MAX_RERANK_DOCUMENTS,
@@ -16,12 +31,15 @@ from dashscope_client import (
     is_configured,
     rerank_titles,
 )
+from search_limits import SEARCHES_AT_ONCE, SearchLimiter, client_key
 from semantic_search import (
+    EVIDENCE_LIMIT,
+    TitleIndex,
     apply_rerank,
     hybrid_rank_titles,
     lexical_variants,
+    prepare_index,
     recommend,
-    validate_index,
 )
 
 EXAMPLES = {
@@ -47,11 +65,138 @@ def cached_title_rerank(query: str, titles: tuple[str, ...]) -> list[tuple[int, 
     return rerank_titles(query, titles)
 
 
+INDEX_PATH = DATA / "title_embeddings.parquet"
+
+
+def index_version() -> int | None:
+    """La versión del índice (su fecha de modificación); None si todavía no existe."""
+    return INDEX_PATH.stat().st_mtime_ns if INDEX_PATH.exists() else None
+
+
+# Uno solo y compartido: la versión anterior sale en cuanto cambia el archivo.
+@st.cache_resource(max_entries=1, show_spinner=False)
+def title_index(version: int) -> TitleIndex:
+    """El índice preparado una vez para todas las sesiones; `version` distingue la caché."""
+    return prepare_index(pl.read_parquet(INDEX_PATH))
+
+
+@st.cache_data(ttl=3600, max_entries=128, show_spinner=False)
+def cached_variants(query: str, version: int) -> dict[str, list[str]]:
+    """Variantes léxicas de la idea en el vocabulario del índice."""
+    return lexical_variants(query, title_index(version).corpus)
+
+
+@st.cache_data(ttl=3600, max_entries=128, show_spinner=False)
+def cached_ranking(query: str, version: int) -> pl.DataFrame:
+    """Los títulos que pueden respaldar una recomendación, ya ordenados por la búsqueda híbrida.
+
+    Se calcula una vez por idea: abrir un perfil o cambiar de pestaña no lo repite.
+    """
+    ranked = hybrid_rank_titles(title_index(version), query, cached_query_embedding(query))
+    return ranked.head(max(EVIDENCE_LIMIT, MAX_RERANK_DOCUMENTS))
+
+
+@st.cache_resource
+def search_slots() -> threading.BoundedSemaphore:
+    """Cuántas búsquedas semánticas corren a la vez; las demás esperan su turno."""
+    return threading.BoundedSemaphore(SEARCHES_AT_ONCE)
+
+
+@st.cache_resource
+def search_limiter() -> SearchLimiter:
+    """Un solo contador para todas las sesiones del proceso."""
+    return SearchLimiter()
+
+
+LIMIT_MESSAGES = {
+    "visitante": "Hiciste muchas búsquedas en la última hora",
+    "hora": "El tablero alcanzó su límite de búsquedas por hora",
+    "día": "El tablero alcanzó su límite de búsquedas del día",
+}
+
+
 def use_example() -> None:
     picked = st.session_state.get("example")
     if picked:
         st.session_state["idea"] = EXAMPLES[picked]
-        st.session_state.pop("searched_idea", None)
+        st.session_state.pop("results", None)
+
+
+@dataclass(frozen=True)
+class Results:
+    """Lo que encontró una búsqueda enviada. Vive en la sesión: volver a dibujar la página
+    (abrir un perfil, por ejemplo) lo reutiliza y nunca llama otra vez a DashScope."""
+
+    query: str
+    recognized: list[str]
+    labs: pl.DataFrame
+    people: pl.DataFrame
+    variants: dict[str, list[str]]
+    semantic: bool
+    # (tipo, texto, ícono), con tipo "info" o "warning", para mostrar sobre los resultados.
+    notices: list[tuple[str, str, str]]
+
+
+def recognized_terms(query: str) -> list[str]:
+    """Los términos de la idea que aparecen en el catálogo."""
+    known = set(load("term_df")["term"])
+    return [term for term in text.terms(query) if term in known]
+
+
+def term_results(query: str, notices: list[tuple[str, str, str]]) -> Results:
+    """La búsqueda local por términos: no llama a ningún servicio."""
+    recognized, labs, people = match(query)
+    return Results(query, recognized, labs, people, {}, False, notices)
+
+
+def run_search(query: str) -> Results:
+    """Busca una idea enviada. Es la única ruta que puede llamar a DashScope."""
+    version = index_version()
+    if version is None:
+        info = "Aún no se generó el índice semántico; usamos la búsqueda por términos."
+        return term_results(query, [("info", info, ":material/info:")])
+    if not is_configured():
+        info = "DashScope no está configurado en el servidor; usamos la búsqueda por términos."
+        return term_results(query, [("info", info, ":material/info:")])
+    limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
+    if limit:
+        info = (
+            f"{LIMIT_MESSAGES[limit]}; mostramos la búsqueda por términos, que no tiene "
+            "límite. Vuelve a intentar más tarde."
+        )
+        return term_results(query, [("info", info, ":material/hourglass_top:")])
+
+    notices: list[tuple[str, str, str]] = []
+    try:
+        with st.spinner("Buscando títulos relacionados…"), search_slots():
+            index = title_index(version)
+            if index.snapshot != snapshot():
+                # Vínculos de otra instantánea: pueden nombrar títulos o personas que ya no
+                # están. Hasta reconstruirlo, la búsqueda por términos.
+                info = (
+                    "El índice semántico es de otra instantánea de datos; usamos la búsqueda "
+                    "por términos hasta reconstruirlo."
+                )
+                return term_results(query, [("info", info, ":material/update:")])
+            variants = cached_variants(query, version)
+            ranked = cached_ranking(query, version)
+            candidate_titles = tuple(ranked.head(MAX_RERANK_DOCUMENTS)["title"].to_list())
+            try:
+                ranked = apply_rerank(ranked, cached_title_rerank(query, candidate_titles))
+            except RerankError:
+                warning = (
+                    "No se pudo ordenar los títulos con el reranker; usamos el ranking híbrido."
+                )
+                notices.append(("warning", warning, ":material/cloud_off:"))
+            labs = recommend(index, ranked, group_by="lab")
+            people = recommend(index, ranked, group_by="person")
+    except (EmbeddingError, ValueError):
+        warning = (
+            "No se pudo completar la búsqueda semántica. Mostramos los resultados por "
+            "coincidencia de términos."
+        )
+        return term_results(query, [("warning", warning, ":material/cloud_off:")])
+    return Results(query, recognized_terms(query), labs, people, variants, True, notices)
 
 
 st.title("Encuentra tu laboratorio y tu asesor")
@@ -76,6 +221,13 @@ with st.form("finder"):
         height=90,
         max_chars=MAX_QUERY_CHARS,
     )
+    # El aviso va antes del botón: nada sale del servidor sin que el visitante lo haya leído.
+    if index_version() is not None and is_configured():
+        st.caption(
+            "Al buscar, tu idea y hasta 100 títulos públicos se envían a Alibaba Cloud para "
+            "calcular similitud y ordenar los resultados. No incluyas información personal o "
+            "confidencial."
+        )
     submitted = st.form_submit_button("Buscar afinidades", type="primary", icon=":material/search:")
 
 if submitted:
@@ -83,10 +235,10 @@ if submitted:
         st.info("Escribe tu idea o elige un ejemplo antes de buscar.", icon=":material/edit:")
         footer()
         st.stop()
-    st.session_state["searched_idea"] = idea.strip()
+    st.session_state["results"] = run_search(idea.strip())
 
-query = st.session_state.get("searched_idea", "")
-if not query:
+results: Results | None = st.session_state.get("results")
+if results is None:
     st.info(
         "Escribe algunas palabras arriba o elige un ejemplo. Entre más específico, mejor: "
         "*“segmentación de imágenes satelitales”* da mejores pistas que *“inteligencia "
@@ -96,63 +248,18 @@ if not query:
     footer()
     st.stop()
 
-if len(query) > MAX_QUERY_CHARS:
-    st.error(f"La consulta no puede superar {MAX_QUERY_CHARS} caracteres.")
-    footer()
-    st.stop()
+query, recognized, labs, people = results.query, results.recognized, results.labs, results.people
+variants, semantic = results.variants, results.semantic
 if idea.strip() != query:
     st.caption(
         "Los resultados corresponden a la última búsqueda enviada. "
         "Presiona Buscar para actualizarlos."
     )
+for kind, message, icon in results.notices:
+    (st.warning if kind == "warning" else st.info)(message, icon=icon)
 
 term_counts = dict(load("term_df").iter_rows())
-recognized = [term for term in text.terms(query) if term in term_counts]
 ignored = [term for term in text.terms(query) if " " not in term and term not in recognized]
-index = load_optional("title_embeddings")
-variants = (
-    lexical_variants(
-        query,
-        index.select("title_id", "title")
-        .unique(subset="title_id", keep="first", maintain_order=True)["title"]
-        .to_list(),
-    )
-    if index is not None
-    else {}
-)
-semantic = False
-
-if index is not None and is_configured():
-    try:
-        validate_index(index)
-        with st.spinner("Buscando títulos relacionados…"):
-            query_vector = cached_query_embedding(query)
-            ranked = hybrid_rank_titles(index, query, query_vector)
-            candidate_titles = tuple(ranked.head(MAX_RERANK_DOCUMENTS)["title"].to_list())
-            try:
-                rerank_results = cached_title_rerank(query, candidate_titles)
-                ranked = apply_rerank(ranked, rerank_results)
-            except RerankError:
-                st.warning(
-                    "No se pudo ordenar los títulos con el reranker; usamos el ranking híbrido.",
-                    icon=":material/cloud_off:",
-                )
-            labs = recommend(index, ranked, group_by="lab")
-            people = recommend(index, ranked, group_by="person")
-        semantic = True
-    except (EmbeddingError, ValueError):
-        st.warning(
-            "No se pudo completar la búsqueda semántica. Mostramos los resultados por "
-            "coincidencia de términos.",
-            icon=":material/cloud_off:",
-        )
-        recognized, labs, people = match(query)
-else:
-    if index is None:
-        st.info("Aún no se generó el índice semántico; usamos la búsqueda por términos.")
-    elif not is_configured():
-        st.info("DashScope no está configurado en el servidor; usamos la búsqueda por términos.")
-    recognized, labs, people = match(query)
 
 st.markdown("**Términos reconocidos en el catálogo**")
 if recognized:
@@ -177,13 +284,6 @@ else:
     )
     footer()
     st.stop()
-
-if semantic:
-    st.caption(
-        "La idea y hasta 100 títulos públicos se envían a Alibaba Cloud para calcular similitud "
-        "y ordenar los resultados. "
-        "No incluyas información personal o confidencial."
-    )
 
 chart_labels = {**LABELS, "matched": "Obra más afín" if semantic else LABELS["matched"]}
 left, right = st.columns(2, gap="large")
@@ -246,7 +346,8 @@ for start in range(0, len(people_rows), 2):
             if semantic:
                 st.caption("Obra más afín")
                 st.text(f"{row['evidence_source']}: {row['evidence_title']}")
-                st.caption(f"Evidencia relacionada: {row['evidence_count']} títulos")
+                evidence = count_label(row["evidence_count"], "título")
+                st.caption(f"Evidencia relacionada: {evidence}")
             else:
                 st.caption(f"En común contigo: {row['matched']}")
             if st.button(

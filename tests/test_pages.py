@@ -3,6 +3,7 @@
 import datetime
 import json
 import math
+from collections.abc import Iterator
 from pathlib import Path
 
 import polars as pl
@@ -54,6 +55,13 @@ def test_finder_ranks_the_lab_that_uses_the_terms() -> None:
     assert not app.exception, app.exception
     subheaders = [s.value for s in app.subheader]
     assert "Laboratorios afines" in subheaders
+    # La barra más larga es la del laboratorio que match() pone primero.
+    import common
+
+    _, labs, _ = common.match("análisis de sentimiento con deep learning")
+    bars = chart_specs(app)[0]["data"][0]
+    affinities = numbers(bars["x"])
+    assert bars["y"][affinities.index(max(affinities))] == labs["lab"][0]
 
 
 @pytest.mark.usefixtures("tables")
@@ -717,3 +725,140 @@ def test_a_lab_without_openalex_profiles_says_so() -> None:
     unlinked = next(lab for lab in common.load("lab_stats")["lab"] if lab not in linked)
     app = openalex_venue_page(unlinked)
     assert any("No hay trabajos de OpenAlex" in info.value for info in app.info)
+
+
+@pytest.fixture
+def semantic_finder(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
+    """Encuentra tu lab con llave e índice, y una API falsa que anota cada llamada."""
+    import common
+    import dashscope_client
+    import title_documents
+
+    documents = title_documents.collect_title_documents(common.DATA)
+    width = 4
+    index = documents.with_columns(
+        embedding=pl.Series([[1.0, 0.0, 0.0, 0.0]] * documents.height, dtype=pl.List(pl.Float32)),
+        model=pl.lit(dashscope_client.MODEL),
+        dimension=pl.lit(dashscope_client.DIMENSION, dtype=pl.Int16),
+        snapshot=pl.lit(common.snapshot()),
+    )
+    path = common.DATA / "title_embeddings.parquet"
+    index.write_parquet(path)
+    calls: list[str] = []
+
+    def embed(query: str) -> list[float]:
+        calls.append(f"embedding: {query}")
+        return [1.0] + [0.0] * (width - 1)
+
+    def rerank(query: str, titles: tuple[str, ...]) -> list[tuple[int, float]]:
+        calls.append(f"rerank: {query}")
+        return [(i, 1.0 - i / 1000) for i in range(len(titles))]
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "llave-de-prueba")
+    monkeypatch.setattr(dashscope_client, "embed_query", embed)
+    monkeypatch.setattr(dashscope_client, "rerank_titles", rerank)
+    yield calls
+    path.unlink()
+
+
+@pytest.mark.usefixtures("tables")
+def test_finder_uses_semantic_search_within_the_limits(semantic_finder: list[str]) -> None:
+    app = search_finder(open_page("encuentra"), "visión por computadora con redes neuronales")
+    assert not app.exception, app.exception
+    assert any("Alibaba Cloud" in c.value for c in app.caption)
+    assert semantic_finder
+
+
+@pytest.mark.usefixtures("tables")
+def test_finder_falls_back_to_terms_past_the_limit(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from search_limits import SearchLimiter
+
+    monkeypatch.setattr(SearchLimiter, "allow", lambda self, client: "hora")
+    app = search_finder(open_page("encuentra"), "visión por computadora con redes neuronales")
+    assert not app.exception, app.exception
+    assert any("límite de búsquedas por hora" in i.value for i in app.info)
+    assert "Laboratorios afines" in [s.value for s in app.subheader]
+    # Pasado el tope no sale ninguna llamada cobrada.
+    assert semantic_finder == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_opening_a_profile_does_not_repeat_the_search(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import semantic_search
+
+    rankings: list[str] = []
+    original = semantic_search.hybrid_rank_titles
+
+    def counted(index: semantic_search.TitleIndex, query: str, vector: list[float]) -> pl.DataFrame:
+        rankings.append(query)
+        return original(index, query, vector)
+
+    monkeypatch.setattr(semantic_search, "hybrid_rank_titles", counted)
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    opener = next(b for b in app.button if str(b.key).startswith("open-"))
+    opener.click().run()
+    assert not app.exception, app.exception
+    assert rankings == ["robots móviles que aprenden a caminar"]
+
+
+@pytest.mark.parametrize(
+    ("n", "label"), [(0, "0 títulos"), (1, "1 título"), (1500, "1,500 títulos")]
+)
+def test_count_label_agrees_with_the_number(n: int, label: str) -> None:
+    import common
+
+    assert common.count_label(n, "título") == label
+
+
+@pytest.mark.usefixtures("tables")
+def test_finder_warns_about_the_provider_before_any_search(semantic_finder: list[str]) -> None:
+    app = open_page("encuentra")
+    assert any("se envían a Alibaba Cloud" in c.value for c in app.caption)
+    # Abrir la página no manda nada.
+    assert semantic_finder == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_reruns_never_call_the_provider_again(semantic_finder: list[str]) -> None:
+    import streamlit as st
+
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    sent = list(semantic_finder)
+    # Aunque la caché expire, abrir un perfil reutiliza los resultados de la sesión.
+    st.cache_data.clear()
+    opener = next(b for b in app.button if str(b.key).startswith("open-"))
+    opener.click().run()
+    assert not app.exception, app.exception
+    assert semantic_finder == sent
+
+
+@pytest.mark.usefixtures("tables")
+def test_an_index_from_another_snapshot_falls_back_to_terms(semantic_finder: list[str]) -> None:
+    import datetime
+
+    import common
+
+    path = common.DATA / "title_embeddings.parquet"
+    stale = pl.read_parquet(path).with_columns(snapshot=pl.lit(datetime.date(2000, 1, 1)))
+    stale.write_parquet(path)
+    app = search_finder(open_page("encuentra"), "visión por computadora con redes neuronales")
+    assert not app.exception, app.exception
+    assert any("otra instantánea" in i.value for i in app.info)
+    assert "Laboratorios afines" in [s.value for s in app.subheader]
+    assert semantic_finder == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_a_broken_index_falls_back_to_terms(semantic_finder: list[str]) -> None:
+    import common
+
+    path = common.DATA / "title_embeddings.parquet"
+    pl.read_parquet(path).drop("title").write_parquet(path)
+    app = search_finder(open_page("encuentra"), "visión por computadora con redes neuronales")
+    assert not app.exception, app.exception
+    assert any("No se pudo completar la búsqueda semántica" in w.value for w in app.warning)
+    assert semantic_finder == []

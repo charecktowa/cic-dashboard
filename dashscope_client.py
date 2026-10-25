@@ -1,11 +1,19 @@
-"""Cliente mínimo y validado para los modelos de búsqueda de DashScope."""
+"""Cliente mínimo y validado para los modelos de búsqueda de DashScope.
 
+Habla HTTP con la biblioteca estándar, como openalex.py: el SDK oficial traía 29 paquetes
+(fastapi, opentelemetry, tiktoken…) a la imagen para dos llamadas POST.
+"""
+
+import http.client
+import json
+import logging
 import math
 import os
+import time
+import urllib.error
+import urllib.request
 from collections.abc import Sequence
-from typing import Literal
-
-from dashscope import TextEmbedding, TextReRank
+from typing import Any, Literal
 
 MODEL = "qwen3.7-text-embedding"
 RERANK_MODEL = "qwen3-rerank"
@@ -23,6 +31,21 @@ RERANK_INSTRUCTION = (
     "Prefer titles about the same task, method, or subject; do not reward superficial word overlap."
 )
 TextType = Literal["query", "document"]
+# Un 429 o un 5xx suelen pasar solos. Al construir el índice vale la pena esperar y
+# reintentar (como openalex.py); con un visitante no: mejor la búsqueda por términos ya.
+RETRY_CODES = {429, 500, 502, 503, 504}
+BACKOFF = (1, 2, 4, 8)
+# Las fallas quedan en el log del servidor (docker logs) con su código, nunca con la llave
+# ni con la idea: así se distingue una llave vencida o sin saldo de una caída pasajera.
+log = logging.getLogger(__name__)
+
+
+class ApiError(RuntimeError):
+    """DashScope no respondió, o respondió con un error HTTP."""
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
 
 
 class EmbeddingError(RuntimeError):
@@ -31,6 +54,63 @@ class EmbeddingError(RuntimeError):
 
 class RerankError(RuntimeError):
     """La API de reranking no está disponible o devolvió una respuesta inválida."""
+
+
+def post(path: str, body: dict[str, Any], api_key: str, *, retries: int = 0) -> dict[str, Any]:
+    """Un POST JSON a DashScope, con hasta `retries` reintentos si la falla es pasajera.
+
+    La llave va en la cabecera, nunca en la URL ni en un error.
+    """
+    attempt = 0
+    while True:
+        try:
+            return send(path, body, api_key)
+        except ApiError as error:
+            if not error.transient or attempt == retries:
+                raise
+            time.sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)])
+            attempt += 1
+
+
+def send(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
+    """Un solo intento de POST; convierte cada falla en ApiError."""
+    request = urllib.request.Request(
+        f"{BASE_URL}/{path}",
+        data=json.dumps(body).encode(),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:  # nosec B310
+            reply = json.load(response)
+    except urllib.error.HTTPError as error:
+        # DashScope explica el error en el cuerpo; solo se conserva su código, como
+        # "InvalidApiKey", que no repite nada de la petición.
+        try:
+            code = json.loads(error.read()).get("code") or "sin código"
+        except (ValueError, AttributeError):
+            code = "sin código"
+        message = f"DashScope respondió con HTTP {error.code} ({code})"
+        raise failure(path, message, transient=error.code in RETRY_CODES) from None
+    except (
+        urllib.error.URLError,
+        http.client.IncompleteRead,
+        TimeoutError,
+        ConnectionError,
+        ValueError,
+    ) as error:
+        # El nombre de la clase basta para saber qué pasó, sin su mensaje.
+        message = f"No se pudo conectar con DashScope ({type(error).__name__})"
+        raise failure(path, message, transient=not isinstance(error, ValueError)) from None
+    if not isinstance(reply, dict):
+        raise failure(path, "DashScope devolvió una respuesta inesperada")
+    return reply
+
+
+def failure(path: str, message: str, *, transient: bool = False) -> ApiError:
+    """Deja la falla en el log del servidor y la devuelve como ApiError."""
+    log.warning("%s: %s", path.rsplit("/", 1)[-1], message)
+    return ApiError(message, transient=transient)
 
 
 def is_configured() -> bool:
@@ -53,27 +133,26 @@ def embed_texts(texts: Sequence[str], *, text_type: TextType = "document") -> li
     if not api_key:
         raise EmbeddingError("Falta configurar DASHSCOPE_API_KEY en el servidor")
 
+    parameters: dict[str, Any] = {"text_type": text_type, "dimension": DIMENSION}
+    if text_type == "query":
+        parameters["instruct"] = QUERY_INSTRUCTION
     try:
-        response = TextEmbedding.call(
-            model=MODEL,
-            input=list(texts),
-            api_key=api_key,
-            base_address=BASE_URL,
-            request_timeout=REQUEST_TIMEOUT,
-            text_type=text_type,
-            dimension=DIMENSION,
-            instruct=QUERY_INSTRUCTION if text_type == "query" else None,
+        reply = post(
+            "services/embeddings/text-embedding/text-embedding",
+            {"model": MODEL, "input": {"texts": list(texts)}, "parameters": parameters},
+            api_key,
+            retries=len(BACKOFF) if text_type == "document" else 0,
         )
-    except Exception:
-        raise EmbeddingError("No se pudo conectar con el servicio de embeddings") from None
+    except ApiError as error:
+        raise EmbeddingError(str(error)) from None
 
-    if response.status_code != 200:
-        code = getattr(response, "code", None) or "sin código"
-        raise EmbeddingError(f"DashScope respondió con HTTP {response.status_code} ({code})")
-
-    output = response.output or {}
-    embeddings = output.get("embeddings")
-    if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+    output = reply.get("output") or {}
+    embeddings = output.get("embeddings") if isinstance(output, dict) else None
+    if (
+        not isinstance(embeddings, list)
+        or len(embeddings) != len(texts)
+        or not all(isinstance(item, dict) for item in embeddings)
+    ):
         raise EmbeddingError("DashScope devolvió una cantidad inesperada de vectores")
 
     embeddings.sort(key=lambda item: item.get("text_index", item.get("index", 0)))
@@ -115,32 +194,27 @@ def rerank_titles(query: str, titles: Sequence[str]) -> list[tuple[int, float]]:
         raise RerankError("Falta configurar DASHSCOPE_API_KEY en el servidor")
 
     try:
-        response = TextReRank.call(
-            model=RERANK_MODEL,
-            query=query,
-            documents=list(titles),
-            top_n=len(titles),
-            api_key=api_key,
-            base_address=BASE_URL,
-            request_timeout=REQUEST_TIMEOUT,
-            instruct=RERANK_INSTRUCTION,
+        reply = post(
+            "services/rerank/text-rerank/text-rerank",
+            {
+                "model": RERANK_MODEL,
+                "input": {"query": query, "documents": list(titles)},
+                "parameters": {"top_n": len(titles), "instruct": RERANK_INSTRUCTION},
+            },
+            api_key,
         )
-    except Exception:
-        raise RerankError("No se pudo conectar con el servicio de reranking") from None
+    except ApiError as error:
+        raise RerankError(str(error)) from None
 
-    if response.status_code != 200:
-        code = getattr(response, "code", None) or "sin código"
-        raise RerankError(f"DashScope respondió con HTTP {response.status_code} ({code})")
-
-    output = response.output
-    results = getattr(output, "results", None)
+    output = reply.get("output") or {}
+    results = output.get("results") if isinstance(output, dict) else None
     if not isinstance(results, list) or len(results) != len(titles):
         raise RerankError("DashScope devolvió una cantidad inesperada de resultados")
 
     ranked: list[tuple[int, float]] = []
     for result in results:
-        index = getattr(result, "index", None)
-        score = getattr(result, "relevance_score", None)
+        index = result.get("index") if isinstance(result, dict) else None
+        score = result.get("relevance_score") if isinstance(result, dict) else None
         if (
             not isinstance(index, int)
             or index < 0

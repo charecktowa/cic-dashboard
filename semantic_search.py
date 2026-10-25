@@ -1,7 +1,9 @@
 """Recupera títulos por búsqueda híbrida y agrupa evidencia por asesor o laboratorio."""
 
+import datetime
 import math
 from collections import Counter
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import cast
 
@@ -32,49 +34,92 @@ def validate_index(index: pl.DataFrame) -> None:
         raise ValueError("El modelo o la dimensión del índice semántico no son compatibles")
 
 
-def rank_titles(index: pl.DataFrame, query_vector: list[float]) -> pl.DataFrame:
-    """Ordena títulos únicos por similitud coseno con la consulta."""
-    validate_index(index)
-    if index.is_empty():
-        return pl.DataFrame(schema={"title_id": pl.String, "score": pl.Float64, "rank": pl.UInt32})
+@dataclass(frozen=True)
+class Corpus:
+    """Los títulos partidos en términos, con lo que BM25 necesita; se calcula una sola vez."""
 
-    titles = index.select("title_id", "title").unique(
-        subset="title_id", keep="first", maintain_order=True
-    )
-    embeddings = index.select("title_id", "embedding").unique(
-        subset="title_id", keep="first", maintain_order=True
-    )["embedding"]
+    documents: list[list[str]]
+    lengths: np.ndarray
+    document_frequency: Counter[str]
+    vocabulary: frozenset[str]
+
+    @classmethod
+    def of(cls, titles: list[str]) -> "Corpus":
+        documents = [text.terms(title) for title in titles]
+        return cls(
+            documents=documents,
+            lengths=np.asarray([len(terms) for terms in documents], dtype=np.float64),
+            document_frequency=Counter(term for terms in documents for term in set(terms)),
+            vocabulary=frozenset(t for terms in documents for t in terms if " " not in t),
+        )
+
+
+@dataclass(frozen=True)
+class TitleIndex:
+    """El índice listo para buscar. Lo que no depende de la idea se prepara una vez.
+
+    Cada búsqueda solo multiplica la matriz por el vector de la idea y recorre los términos
+    ya calculados: así varias búsquedas simultáneas caben en un contenedor de 512 MB.
+    """
+
+    links: pl.DataFrame
+    titles: pl.DataFrame
+    unit_vectors: np.ndarray
+    corpus: Corpus
+    # La instantánea con la que se construyó; None en un índice anterior a esta columna.
+    snapshot: datetime.date | None = None
+
+
+def prepare_index(index: pl.DataFrame) -> TitleIndex:
+    """Valida el índice y precalcula los vectores unitarios y los términos de cada título."""
+    validate_index(index)
+    unique = index.unique(subset="title_id", keep="first", maintain_order=True)
+    embeddings = unique["embedding"]
     widths = embeddings.list.len().unique()
-    if widths.len() != 1 or widths[0] is None:
+    if unique.height and (widths.len() != 1 or widths[0] is None):
         raise ValueError("Los vectores del índice no tienen todos la misma dimensión")
+    width = widths[0] if unique.height else 0
     # De Polars a NumPy sin pasar por listas de Python: .to_list() crea un float de Python por
     # valor, más de 250 MB con el índice real, y el contenedor tiene un límite de 512 MB.
-    matrix = embeddings.list.to_array(widths[0]).to_numpy().astype(np.float32, copy=False)
-    query = np.asarray(query_vector, dtype=np.float32)
-    if matrix.ndim != 2 or query.ndim != 1 or matrix.shape[1] != query.size:
-        raise ValueError("La dimensión del vector de consulta no coincide con el índice")
-
-    matrix_norms = np.linalg.norm(matrix, axis=1)
-    query_norm = float(np.linalg.norm(query))
-    if query_norm == 0 or np.any(matrix_norms == 0):
+    matrix = embeddings.list.to_array(width).to_numpy().astype(np.float32).reshape(-1, width)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    if np.any(norms == 0):
         raise ValueError("Los embeddings deben tener norma distinta de cero")
-    scores = matrix @ query / (matrix_norms * query_norm)
-    order = np.lexsort((np.asarray(titles["title_id"]), -scores))
-    ranked = titles[order.tolist()].with_columns(
+    titles = unique.select("title_id", "title")
+    return TitleIndex(
+        links=index.select("title_id", "title", "source", "person", "lab"),
+        titles=titles,
+        unit_vectors=matrix / norms,
+        corpus=Corpus.of(titles["title"].to_list()),
+        snapshot=index["snapshot"][0] if "snapshot" in index.columns and index.height else None,
+    )
+
+
+def rank_titles(index: TitleIndex, query_vector: list[float]) -> pl.DataFrame:
+    """Ordena títulos únicos por similitud coseno con la consulta."""
+    if index.titles.is_empty():
+        return pl.DataFrame(schema={"title_id": pl.String, "score": pl.Float64, "rank": pl.UInt32})
+    query = np.asarray(query_vector, dtype=np.float32)
+    if query.ndim != 1 or index.unit_vectors.shape[1] != query.size:
+        raise ValueError("La dimensión del vector de consulta no coincide con el índice")
+    query_norm = float(np.linalg.norm(query))
+    if query_norm == 0:
+        raise ValueError("Los embeddings deben tener norma distinta de cero")
+    scores = index.unit_vectors @ (query / query_norm)
+    order = np.lexsort((np.asarray(index.titles["title_id"]), -scores))
+    return index.titles[order.tolist()].with_columns(
         score=pl.Series(scores[order], dtype=pl.Float64),
         rank=pl.Series(range(1, len(order) + 1), dtype=pl.UInt32),
     )
-    return ranked
 
 
-def lexical_variants(query: str, titles: list[str]) -> dict[str, list[str]]:
+def lexical_variants(query: str, corpus: Corpus) -> dict[str, list[str]]:
     """Busca variantes léxicas cercanas presentes en el catálogo, sin modelo externo."""
     query_terms = text.terms(query)
-    if not query_terms or not titles:
+    if not query_terms or not corpus.documents:
         return {}
 
-    documents = [text.terms(title) for title in titles]
-    vocabulary = {term for terms in documents for term in terms if " " not in term}
+    vocabulary = corpus.vocabulary
     variants: dict[str, list[str]] = {}
     for term in query_terms:
         if " " in term or term in vocabulary or len(term) < 6:
@@ -97,14 +142,14 @@ def lexical_variants(query: str, titles: list[str]) -> dict[str, list[str]]:
     return variants
 
 
-def bm25_scores(query: str, titles: list[str]) -> np.ndarray:
+def bm25_scores(query: str, corpus: Corpus) -> np.ndarray:
     """Calcula BM25 y añade coincidencias aproximadas de términos poco comunes."""
+    documents = corpus.documents
     query_terms = text.terms(query)
-    if not query_terms or not titles:
-        return np.zeros(len(titles), dtype=np.float64)
+    if not query_terms or not documents:
+        return np.zeros(len(documents), dtype=np.float64)
 
-    documents = [text.terms(title) for title in titles]
-    variants = lexical_variants(query, titles)
+    variants = lexical_variants(query, corpus)
     term_weights = dict.fromkeys(query_terms, 1.0)
     term_weights.update(
         {
@@ -113,12 +158,12 @@ def bm25_scores(query: str, titles: list[str]) -> np.ndarray:
             for variant in matches
         }
     )
-    lengths = np.asarray([len(terms) for terms in documents], dtype=np.float64)
+    lengths = corpus.lengths
     average_length = float(lengths.mean()) if len(lengths) else 0.0
     if average_length == 0:
-        return np.zeros(len(titles), dtype=np.float64)
+        return np.zeros(len(documents), dtype=np.float64)
 
-    document_frequency = Counter(term for terms in documents for term in set(terms))
+    document_frequency = corpus.document_frequency
     total_documents = len(documents)
     scores = np.zeros(total_documents, dtype=np.float64)
     for term, weight in term_weights.items():
@@ -138,7 +183,7 @@ def bm25_scores(query: str, titles: list[str]) -> np.ndarray:
     return scores
 
 
-def hybrid_rank_titles(index: pl.DataFrame, query: str, query_vector: list[float]) -> pl.DataFrame:
+def hybrid_rank_titles(index: TitleIndex, query: str, query_vector: list[float]) -> pl.DataFrame:
     """Fusiona los rankings semántico y BM25 sin mezclar sus escalas de puntuación."""
     semantic = rank_titles(index, query_vector)
     if semantic.is_empty():
@@ -147,8 +192,10 @@ def hybrid_rank_titles(index: pl.DataFrame, query: str, query_vector: list[float
             bm25_score=pl.Series([], dtype=pl.Float64),
         )
 
+    # BM25 sale en el orden del índice; se reordena al del ranking semántico.
+    positions = {title_id: i for i, title_id in enumerate(index.titles["title_id"].to_list())}
     title_ids = semantic["title_id"].to_list()
-    lexical_scores = bm25_scores(query, semantic["title"].to_list())
+    lexical_scores = bm25_scores(query, index.corpus)[[positions[t] for t in title_ids]]
     lexical_order = np.lexsort((np.asarray(title_ids), -lexical_scores))
     lexical_ranks = {
         title_ids[index]: rank
@@ -199,7 +246,7 @@ def apply_rerank(ranked: pl.DataFrame, rerank_results: list[tuple[int, float]]) 
 
 
 def recommend(
-    index: pl.DataFrame,
+    index: TitleIndex,
     ranked: pl.DataFrame,
     *,
     group_by: str,
@@ -226,12 +273,11 @@ def recommend(
     }
     if group_by == "person":
         schema["lab"] = pl.String
-    if ranked.is_empty() or index.is_empty():
+    if ranked.is_empty() or index.links.is_empty():
         return pl.DataFrame(schema=schema)
 
     links = (
-        index.select("title_id", "title", "source", "person", "lab")
-        .join(ranked.head(EVIDENCE_LIMIT), on="title_id", how="inner")
+        index.links.join(ranked.head(EVIDENCE_LIMIT), on="title_id", how="inner")
         .filter(pl.col(group_by).is_not_null())
         .sort("rank")
         .unique(subset=["title_id", "source", group_by], keep="first", maintain_order=True)
