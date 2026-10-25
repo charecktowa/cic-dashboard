@@ -421,8 +421,10 @@ la búsqueda local por palabras y pares de palabras.
 
 **Qué significan los resultados.** La afinidad es relativa al resultado mejor posicionado en
 esta búsqueda; no es una probabilidad de éxito ni una evaluación de la calidad del asesor.
-Cada recomendación muestra la obra que más contribuyó a que apareciera, y en **Obras afines**
-hasta cinco de sus trabajos más relacionados con tu idea. Primero, cada obra respalda a una
+Cada recomendación muestra la obra por la que esa persona entró a la lista: casi siempre su
+obra más afín, salvo cuando esa obra ya respaldó a otra persona y entra por la siguiente. En
+**Obras afines** están hasta cinco de sus trabajos más relacionados con tu idea, del más afín
+al menos. Primero, cada obra respalda a una
 sola persona y a un solo laboratorio, el de quien la dirige o encabeza, para que un proyecto
 con muchos integrantes no llene la lista; los demás pueden aparecer por otra obra suya. Si
 después sobran lugares, una obra ya usada puede respaldar a alguien más, como un coasesor que
