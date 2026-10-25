@@ -354,3 +354,19 @@ def test_related_works_are_at_most_five() -> None:
     people = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person")
     assert people["evidence_count"][0] == 8
     assert len(people["related"][0]) == 5
+
+
+def test_a_work_listed_twice_counts_once() -> None:
+    rows = [
+        ("a", "SISTEMA PARA DETECTAR CÁNCER.", "Proyecto", "Repetida", [1.0, 0.0]),
+        ("b", "Sistema para detectar cancer", "Proyecto", "Repetida", [0.99, 0.141]),
+        ("c", "Otra obra afín", "Tesis", "Repetida", [0.9, 0.436]),
+    ]
+    frame = pl.DataFrame(
+        rows, schema=["title_id", "title", "source", "person", "embedding"], orient="row"
+    ).with_columns(lab=pl.lit("L"), model=pl.lit("qwen3.7-text-embedding"), dimension=pl.lit(1024))
+    index = prepare_index(frame)
+    person = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person").row(0, named=True)
+    # El mismo proyecto escrito de dos formas es una obra: dos obras afines, no tres.
+    assert person["evidence_count"] == 2
+    assert len(person["related"]) == 2

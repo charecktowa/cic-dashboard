@@ -357,8 +357,12 @@ def recommend(
     order = {key: position for position, key in enumerate(chosen)}
 
     extra = {"lab": pl.col("lab").drop_nulls().first()} if group_by == "person" else {}
-    by_relevance = links.unique(subset=["title_id", group_by], keep="first").sort(
-        ["score", "rank"], descending=[True, False]
+    # Una obra cuenta una vez aunque el catálogo la tenga dos veces con otras mayúsculas,
+    # acentos o puntuación (49 títulos lo están): si no, sumaría doble en la profundidad.
+    by_relevance = (
+        links.with_columns(work=text.words_expr("title").list.join(" "))
+        .sort(["score", "rank"], descending=[True, False])
+        .unique(subset=["work", group_by], keep="first", maintain_order=True)
     )
     position = pl.int_range(pl.len()).over(group_by)
     stats = (
@@ -368,7 +372,7 @@ def recommend(
         .group_by(group_by)
         .agg(
             depth=(pl.col("score") * pl.col("weight")).sum(),
-            evidence_count=pl.col("title_id").n_unique().cast(pl.UInt32),
+            evidence_count=pl.col("work").n_unique().cast(pl.UInt32),
             related=(pl.col("source") + pl.lit(" · ") + pl.col("title")).head(RELATED_SHOWN),
             **extra,
         )
