@@ -23,6 +23,12 @@ services:
     security_opt:
       - no-new-privileges:true
     mem_limit: 512m
+    # Docker guarda los logs sin límite por omisión: con esto ocupan 30 MB como máximo.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
 
 networks:
   proxy:

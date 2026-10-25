@@ -115,6 +115,16 @@ Cada una cuesta unos $0.0001, cuenta en los mismos topes y se verifica contra el
 (`idea_assistant.py`): una sugerencia necesita un par de palabras con títulos, y el resumen
 solo puede citar, por número, las obras que recibió.
 
+Cada búsqueda, cada ayuda con IA y cada tope alcanzado deja una línea en el log, sin la idea
+ni la IP del visitante; las fallas de DashScope dejan su código. Para ver cómo va el día:
+
+```bash
+docker logs --since 24h cic-dashboard 2>&1 | grep " cic\."
+```
+
+Si aparece seguido `tope alcanzado: hora` o `día`, los topes se quedan cortos. `compose.yaml`
+rota los logs: 3 archivos de 10 MB como máximo.
+
 ## 1b. Métricas y publicaciones de OpenAlex (opcional)
 
 `openalex.py` vincula a cada persona investigadora con su perfil de
