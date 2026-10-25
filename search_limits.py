@@ -41,8 +41,10 @@ class SearchLimiter:
 
     def allow(self, client: str) -> str | None:
         """Registra una búsqueda si cabe en los topes; si no, devuelve cuál se alcanzó."""
-        now = self.clock()
         with self._lock:
+            # El reloj se lee con el candado puesto: así las ventanas quedan en orden aunque
+            # dos hilos lleguen a la vez, y drop_before() puede podar solo por la izquierda.
+            now = self.clock()
             drop_before(self._searches, now - DAY)
             for key in list(self._clients):
                 drop_before(self._clients[key], now - HOUR)
