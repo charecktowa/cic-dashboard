@@ -822,3 +822,12 @@ def test_load_shared_reads_once_per_version(
     newer, newer_version = shared()
     assert newer["v"].to_list() == [2]
     assert newer_version != version
+
+
+@pytest.mark.parametrize(
+    ("n", "label"), [(0, "0 títulos"), (1, "1 título"), (1500, "1,500 títulos")]
+)
+def test_count_label_agrees_with_the_number(n: int, label: str) -> None:
+    import common
+
+    assert common.count_label(n, "título") == label

@@ -6,7 +6,18 @@ import streamlit as st
 
 import text
 from advisor import profile_dialog
-from common import LABELS, TEAL_SCALE, explain, footer, lab_colors, load, load_shared, match, show
+from common import (
+    LABELS,
+    TEAL_SCALE,
+    count_label,
+    explain,
+    footer,
+    lab_colors,
+    load,
+    load_shared,
+    match,
+    show,
+)
 from dashscope_client import (
     MAX_QUERY_CHARS,
     MAX_RERANK_DOCUMENTS,
@@ -294,7 +305,8 @@ for start in range(0, len(people_rows), 2):
             if semantic:
                 st.caption("Obra más afín")
                 st.text(f"{row['evidence_source']}: {row['evidence_title']}")
-                st.caption(f"Evidencia relacionada: {row['evidence_count']} títulos")
+                evidence = count_label(row["evidence_count"], "título")
+                st.caption(f"Evidencia relacionada: {evidence}")
             else:
                 st.caption(f"En común contigo: {row['matched']}")
             if st.button(
