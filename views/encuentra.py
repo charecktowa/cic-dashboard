@@ -321,8 +321,9 @@ with st.form("finder"):
     if index_version() is not None and is_configured():
         st.caption(
             "Al buscar, tu idea y hasta 100 títulos públicos se envían a Alibaba Cloud para "
-            "calcular similitud y ordenar los resultados. No incluyas información personal o "
-            "confidencial."
+            "calcular similitud y ordenar los resultados; también al pedir áreas cercanas o al "
+            "abrir un perfil, para resumir con IA por qué encaja. No incluyas información "
+            "personal o confidencial."
         )
     submitted = st.form_submit_button("Buscar afinidades", type="primary", icon=":material/search:")
 
@@ -554,6 +555,14 @@ obras poco afines tampoco ganan a una muy cercana.
 
 En la búsqueda semántica, si ningún título del catálogo menciona una palabra de tu idea de 6
 letras o más, la página lo dice.
+
+**Lo que hace la IA.** Dos ayudas usan un modelo de lenguaje (Qwen3.7 Flash), y solo cuando
+las pides. Si una palabra de tu idea no tiene trabajos, el botón *Sugerir áreas cercanas*
+propone hasta tres áreas que sí tienen títulos en el catálogo; cada una se comprueba antes de
+mostrarse. Al abrir el perfil de una persona desde aquí, un resumen explica por qué podría
+encajar con tu idea y señala una de sus obras afines; solo usa esos títulos, y la obra
+señalada siempre es una de ellas. Ambas pueden equivocarse: revisa los trabajos antes de
+escribirle a alguien.
 
 **Limitaciones.** Solo se leen títulos, no resúmenes. Las tesis se vinculan con Director 1 y
 Director 2; los comités no cuentan como experiencia de dirección. Es una herramienta para

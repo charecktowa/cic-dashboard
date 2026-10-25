@@ -45,6 +45,7 @@ export.py        base de datos → data/*.parquet (solo en tu máquina)
 build_title_index.py  títulos públicos → vectores Qwen en data/ (solo en tu máquina)
 dashscope_client.py   cliente DashScope y validación de sus respuestas
 semantic_search.py    similitud vectorial y agrupación por asesor/laboratorio
+idea_assistant.py     áreas vecinas y resúmenes con Qwen3.7 Flash, verificados
 text.py          cómo se parte un texto en términos; lo usan export.py y la app
 common.py        carga de datos, etiquetas en español y utilidades de las páginas
 app.py           navegación
@@ -104,6 +105,14 @@ en todo el sitio. Con ellos el gasto máximo ronda $3.40 al día; pasado un tope
 la búsqueda por términos. Los contadores viven en memoria: bastan porque la app corre en un
 solo proceso, y se reinician con el contenedor. Configura además una alerta de gasto en la
 consola de Alibaba Cloud.
+
+Dos ayudas usan además Qwen3.7 Flash (~$0.03 por millón de tokens de entrada y $0.13 de
+salida), por la ruta compatible con OpenAI del mismo servidor y con la misma llave, y solo
+cuando el visitante las pide: sugerir áreas cercanas cuando una palabra no tiene trabajos en
+el catálogo, y resumir por qué una persona encaja al abrir su perfil desde «Encuentra tu lab».
+Cada una cuesta unos $0.0001, cuenta en los mismos topes y se verifica contra el catálogo
+(`idea_assistant.py`): una sugerencia necesita un par de palabras con títulos, y el resumen
+solo puede señalar una de las obras que recibió.
 
 ## 1b. Métricas y publicaciones de OpenAlex (opcional)
 
