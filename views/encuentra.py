@@ -1,5 +1,6 @@
 """Búsqueda de laboratorios y asesores a partir de una idea de tesis."""
 
+import re
 import threading
 from dataclasses import dataclass
 
@@ -40,6 +41,7 @@ from semantic_search import (
     lexical_variants,
     prepare_index,
     recommend,
+    uncovered_words,
 )
 
 EXAMPLES = {
@@ -137,6 +139,14 @@ class Results:
     notices: list[tuple[str, str, str]]
 
 
+def as_written(query: str, term: str) -> str:
+    """El término como lo escribió el visitante, con sus acentos ("odontología")."""
+    for raw in re.findall(r"[\w-]+", query):
+        if text.words(raw) == [term]:
+            return raw
+    return term
+
+
 def recognized_terms(query: str) -> list[str]:
     """Los términos de la idea que aparecen en el catálogo."""
     known = set(load("term_df")["term"])
@@ -196,6 +206,15 @@ def run_search(query: str) -> Results:
             "coincidencia de términos."
         )
         return term_results(query, [("warning", warning, ":material/cloud_off:")])
+    missing = [
+        f"«{as_written(query, term)}»" for term in uncovered_words(query, index.corpus, variants)
+    ]
+    if missing:
+        info = (
+            f"Ningún título del catálogo menciona {', '.join(missing)}. Las sugerencias se basan "
+            "en el resto de tu idea y en temas parecidos: tómalas como un punto de partida."
+        )
+        notices.append(("info", info, ":material/search_off:"))
     return Results(query, recognized_terms(query), labs, people, variants, True, notices)
 
 

@@ -12,6 +12,7 @@ from semantic_search import (
     prepare_index,
     rank_titles,
     recommend,
+    uncovered_words,
     validate_index,
 )
 
@@ -259,3 +260,11 @@ def test_lexical_variants_need_the_same_beginning() -> None:
     # Parecida en letras, pero otra palabra: no es variante.
     assert "odontologia" not in variants
     assert set(variants["deteccions"]) >= {"detection", "deteccion"}
+
+
+def test_uncovered_words_are_the_ones_no_title_mentions() -> None:
+    corpus = Corpus.of(["Detección de malware con aprendizaje profundo", "Deep learning"] * 3)
+    idea = "deep learning para odontología y detección de malwares, quiero algo"
+    variants = lexical_variants(idea, corpus)
+    # "malwares" tiene la variante "malware"; "quiero" y "algo" son de relleno.
+    assert uncovered_words(idea, corpus, variants) == ["odontologia"]

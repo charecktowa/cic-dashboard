@@ -23,6 +23,8 @@ VARIANT_WEIGHT = 0.65
 MAX_TERM_VARIANTS = 4
 # Letras iniciales que una variante debe compartir con la palabra de la idea.
 PREFIX = 3
+# Palabras más cortas suelen ser de relleno ("hacer", "usar"): no merecen un aviso.
+MIN_UNCOVERED = 6
 # Quién representa una obra con varios integrantes: el papel más directo primero.
 ROLE_ORDER = {
     "Director 1": 0,
@@ -159,6 +161,23 @@ def lexical_variants(query: str, corpus: Corpus) -> dict[str, list[str]]:
         if matches:
             variants[term] = [candidate for _, candidate in matches]
     return variants
+
+
+def uncovered_words(query: str, corpus: Corpus, variants: dict[str, list[str]]) -> list[str]:
+    """Palabras de la idea que ningún título del catálogo menciona, ni con una variante.
+
+    Es literal a propósito: con el embedding de una palabra suelta, las ausentes y las raras
+    se parecen igual a los títulos (0.45–0.58 contra 0.51–0.68 de similitud), y ningún umbral
+    las separa sin equivocarse con varias.
+    """
+    return [
+        term
+        for term in text.terms(query)
+        if " " not in term
+        and len(term) >= MIN_UNCOVERED
+        and not corpus.document_frequency.get(term)
+        and term not in variants
+    ]
 
 
 def bm25_scores(query: str, corpus: Corpus) -> np.ndarray:
