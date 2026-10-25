@@ -86,9 +86,10 @@ def send(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
     except urllib.error.HTTPError as error:
         # DashScope explica el error en el cuerpo; solo se conserva su código, como
         # "InvalidApiKey", que no repite nada de la petición.
+        # Leer ese cuerpo también puede fallar si la conexión se corta.
         try:
             code = json.loads(error.read()).get("code") or "sin código"
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError, OSError, http.client.HTTPException):
             code = "sin código"
         message = f"DashScope respondió con HTTP {error.code} ({code})"
         raise failure(path, message, transient=error.code in RETRY_CODES) from None

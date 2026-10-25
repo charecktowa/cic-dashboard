@@ -289,3 +289,19 @@ def test_embed_texts_rejects_repeated_indices_instead_of_crossing_vectors(api: F
     }
     with pytest.raises(dashscope_client.EmbeddingError, match="índice válido"):
         dashscope_client.embed_texts(["a", "b"])
+
+
+class BrokenBody(io.BytesIO):
+    """Un cuerpo de error que se corta al leerlo."""
+
+    def read(self, *args: Any) -> bytes:
+        raise http.client.IncompleteRead(b'{"code"')
+
+
+def test_post_survives_an_error_body_that_cannot_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    failure = urllib.error.HTTPError(
+        dashscope_client.BASE_URL, 503, "error", email.message.Message(), BrokenBody()
+    )
+    scripted_urlopen(monkeypatch, [failure])
+    with pytest.raises(dashscope_client.ApiError, match=r"HTTP 503 \(sin código\)"):
+        dashscope_client.post("services/x", {}, KEY)
