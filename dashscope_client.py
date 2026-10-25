@@ -12,6 +12,7 @@ BASE_URL = "https://ap-southeast-1.maas.qwencloudapi.com/api/v1"
 DIMENSION = 1024
 MAX_BATCH_SIZE = 20
 REQUEST_TIMEOUT = 30
+MAX_QUERY_CHARS = 500
 QUERY_INSTRUCTION = (
     "Given a research idea, retrieve relevant thesis, research publication, or project titles."
 )
@@ -20,6 +21,11 @@ TextType = Literal["query", "document"]
 
 class EmbeddingError(RuntimeError):
     """La API de embeddings no está disponible o devolvió una respuesta inválida."""
+
+
+def is_configured() -> bool:
+    """Indica si la clave está disponible en el entorno del servidor."""
+    return bool(os.environ.get("DASHSCOPE_API_KEY", "").strip())
 
 
 def embed_texts(texts: Sequence[str], *, text_type: TextType = "document") -> list[list[float]]:
@@ -76,4 +82,6 @@ def embed_query(text: str) -> list[float]:
     """Vectoriza una consulta de usuario con la instrucción de recuperación."""
     if not text.strip():
         raise ValueError("La consulta no puede estar vacía")
+    if len(text) > MAX_QUERY_CHARS:
+        raise ValueError(f"La consulta no puede superar {MAX_QUERY_CHARS} caracteres")
     return embed_texts([text], text_type="query")[0]

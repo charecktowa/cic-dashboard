@@ -33,6 +33,14 @@ def open_page(page: str, **query: str) -> AppTest:
     return app
 
 
+def search_finder(app: AppTest, idea: str) -> AppTest:
+    app.text_area(key="idea").set_value(idea)
+    next(
+        button for button in app.form_submit_button if button.label == "Buscar afinidades"
+    ).click().run()
+    return app
+
+
 @pytest.mark.usefixtures("tables")
 @pytest.mark.parametrize("page", PAGES)
 def test_page_runs(page: str) -> None:
@@ -42,8 +50,7 @@ def test_page_runs(page: str) -> None:
 
 @pytest.mark.usefixtures("tables")
 def test_finder_ranks_the_lab_that_uses_the_terms() -> None:
-    app = open_page("encuentra")
-    app.text_area(key="idea").set_value("análisis de sentimiento con deep learning").run()
+    app = search_finder(open_page("encuentra"), "análisis de sentimiento con deep learning")
     assert not app.exception, app.exception
     subheaders = [s.value for s in app.subheader]
     assert "Laboratorios afines" in subheaders
@@ -51,8 +58,7 @@ def test_finder_ranks_the_lab_that_uses_the_terms() -> None:
 
 @pytest.mark.usefixtures("tables")
 def test_finder_warns_when_nothing_matches() -> None:
-    app = open_page("encuentra")
-    app.text_area(key="idea").set_value("zzzz qqqq").run()
+    app = search_finder(open_page("encuentra"), "zzzz qqqq")
     assert not app.exception, app.exception
     assert app.warning
 
@@ -67,8 +73,7 @@ def test_match_puts_the_right_lab_first(tables: dict[str, pl.DataFrame]) -> None
 
 @pytest.mark.usefixtures("tables")
 def test_finder_opens_a_profile_without_leaving_the_page() -> None:
-    app = open_page("encuentra")
-    app.text_area(key="idea").set_value("deep learning").run()
+    app = search_finder(open_page("encuentra"), "deep learning")
     opener = next(b for b in app.button if str(b.key).startswith("open-"))
     opener.click().run()
     assert not app.exception, app.exception
@@ -363,8 +368,7 @@ def test_lab_members_link_to_their_profile() -> None:
 
 @pytest.mark.usefixtures("tables")
 def test_finder_dialog_links_to_the_profile_page() -> None:
-    app = open_page("encuentra")
-    app.text_area(key="idea").set_value("deep learning").run()
+    app = search_finder(open_page("encuentra"), "deep learning")
     opener = next(b for b in app.button if str(b.key).startswith("open-"))
     opener.click().run()
     assert profile_links(app) == [str(opener.key).removeprefix("open-")]

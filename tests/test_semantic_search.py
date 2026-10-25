@@ -1,0 +1,72 @@
+"""La recuperación y recomendación mantienen las obras como evidencia explícita."""
+
+import polars as pl
+import pytest
+
+from semantic_search import rank_titles, recommend, validate_index
+
+
+def index_frame() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "title_id": ["a", "a", "b", "c", "d"],
+            "title": [
+                "Seguridad con malware",
+                "Seguridad con malware",
+                "Detección de software malicioso",
+                "Robótica móvil",
+                "Título sin asesor",
+            ],
+            "source": ["Tesis", "Tesis", "Artículo", "Proyecto", "Tesis"],
+            "model": ["qwen3.7-text-embedding"] * 5,
+            "dimension": [1024] * 5,
+            "person": ["Asesora A", "Asesor B", "Asesora A", "Asesor C", None],
+            "lab": ["Ciberseguridad", "Ciberseguridad", "Ciberseguridad", "Robótica", "Ciencias"],
+            "embedding": [
+                [1.0, 0.0],
+                [1.0, 0.0],
+                [0.8, 0.6],
+                [0.0, 1.0],
+                [-1.0, 0.0],
+            ],
+        }
+    )
+
+
+def test_rank_titles_deduplicates_shared_titles_and_uses_cosine() -> None:
+    ranked = rank_titles(index_frame(), [1.0, 0.0])
+    assert ranked["title_id"].to_list() == ["a", "b", "c", "d"]
+    assert ranked["score"][0] == pytest.approx(1.0)
+    assert ranked["rank"].to_list() == [1, 2, 3, 4]
+
+
+def test_recommend_uses_best_evidence_and_preserves_co_advisors() -> None:
+    index = index_frame()
+    ranked = rank_titles(index, [1.0, 0.0])
+    people = recommend(index, ranked, group_by="person", limit=5)
+    rows = {row["person"]: row for row in people.iter_rows(named=True)}
+    assert set(rows) == {"Asesora A", "Asesor B", "Asesor C"}
+    assert rows["Asesora A"]["evidence_title"] == "Seguridad con malware"
+    assert rows["Asesor B"]["evidence_title"] == "Seguridad con malware"
+    assert rows["Asesora A"]["evidence_count"] == 2
+    assert rows["Asesor B"]["evidence_count"] == 1
+
+
+def test_recommend_returns_empty_for_unknown_group_or_no_links() -> None:
+    index = index_frame()
+    ranked = rank_titles(index, [1.0, 0.0])
+    assert recommend(index, ranked.head(0), group_by="person").is_empty()
+    with pytest.raises(ValueError, match="group_by"):
+        recommend(index, ranked, group_by="committee")
+
+
+def test_rank_titles_checks_vector_dimensions() -> None:
+    index = index_frame()
+    with pytest.raises(ValueError, match="dimensión"):
+        rank_titles(index, [1.0, 0.0, 0.0])
+
+
+def test_validate_index_rejects_a_stale_model() -> None:
+    index = index_frame().with_columns(model=pl.lit("otro-modelo"))
+    with pytest.raises(ValueError, match="no son compatibles"):
+        validate_index(index)
