@@ -1,14 +1,20 @@
-"""Recupera títulos por similitud semántica y agrupa evidencia por asesor o laboratorio."""
+"""Recupera títulos por búsqueda híbrida y agrupa evidencia por asesor o laboratorio."""
 
+import math
+from collections import Counter
 from typing import cast
 
 import numpy as np
 import polars as pl
 
+import text
 from dashscope_client import DIMENSION, MODEL
 
 EVIDENCE_LIMIT = 100
 INDEX_COLUMNS = {"title_id", "title", "embedding", "model", "dimension", "source", "person", "lab"}
+RRF_K = 60
+BM25_K1 = 1.5
+BM25_B = 0.75
 
 
 def validate_index(index: pl.DataFrame) -> None:
@@ -52,6 +58,68 @@ def rank_titles(index: pl.DataFrame, query_vector: list[float]) -> pl.DataFrame:
         rank=pl.Series(range(1, len(order) + 1), dtype=pl.UInt32),
     )
     return ranked
+
+
+def bm25_scores(query: str, titles: list[str]) -> np.ndarray:
+    """Calcula BM25 por título con los mismos términos y pares que usa el catálogo."""
+    query_terms = text.terms(query)
+    if not query_terms or not titles:
+        return np.zeros(len(titles), dtype=np.float64)
+
+    documents = [text.terms(title) for title in titles]
+    lengths = np.asarray([len(terms) for terms in documents], dtype=np.float64)
+    average_length = float(lengths.mean()) if len(lengths) else 0.0
+    if average_length == 0:
+        return np.zeros(len(titles), dtype=np.float64)
+
+    document_frequency = Counter(term for terms in documents for term in set(terms))
+    total_documents = len(documents)
+    scores = np.zeros(total_documents, dtype=np.float64)
+    for term in query_terms:
+        frequency = document_frequency.get(term, 0)
+        if not frequency:
+            continue
+        inverse_frequency = math.log1p((total_documents - frequency + 0.5) / (frequency + 0.5))
+        for index, terms in enumerate(documents):
+            term_frequency = terms.count(term)
+            if term_frequency:
+                denominator = term_frequency + BM25_K1 * (
+                    1 - BM25_B + BM25_B * lengths[index] / average_length
+                )
+                scores[index] += inverse_frequency * term_frequency * (BM25_K1 + 1) / denominator
+    return scores
+
+
+def hybrid_rank_titles(index: pl.DataFrame, query: str, query_vector: list[float]) -> pl.DataFrame:
+    """Fusiona los rankings semántico y BM25 sin mezclar sus escalas de puntuación."""
+    semantic = rank_titles(index, query_vector)
+    if semantic.is_empty():
+        return semantic.with_columns(
+            semantic_score=pl.Series([], dtype=pl.Float64),
+            bm25_score=pl.Series([], dtype=pl.Float64),
+        )
+
+    title_ids = semantic["title_id"].to_list()
+    lexical_scores = bm25_scores(query, semantic["title"].to_list())
+    lexical_order = np.lexsort((np.asarray(title_ids), -lexical_scores))
+    lexical_ranks = {
+        title_ids[index]: rank
+        for rank, index in enumerate(lexical_order, start=1)
+        if lexical_scores[index] > 0
+    }
+    semantic_ranks = dict(zip(title_ids, semantic["rank"].to_list(), strict=True))
+    fused_scores = [
+        1 / (RRF_K + semantic_ranks[title_id])
+        + (1 / (RRF_K + lexical_ranks[title_id]) if title_id in lexical_ranks else 0)
+        for title_id in title_ids
+    ]
+    order = np.lexsort((np.asarray(title_ids), -np.asarray(fused_scores)))
+    return semantic[order.tolist()].with_columns(
+        semantic_score=pl.col("score"),
+        bm25_score=pl.Series(lexical_scores[order], dtype=pl.Float64),
+        score=pl.Series(np.asarray(fused_scores)[order], dtype=pl.Float64),
+        rank=pl.Series(range(1, len(order) + 1), dtype=pl.UInt32),
+    )
 
 
 def recommend(

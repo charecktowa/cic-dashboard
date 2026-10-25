@@ -13,7 +13,7 @@ from dashscope_client import (
     embed_query,
     is_configured,
 )
-from semantic_search import rank_titles, recommend, validate_index
+from semantic_search import hybrid_rank_titles, recommend, validate_index
 
 EXAMPLES = {
     "Noticias falsas": "detección de noticias falsas en redes sociales con lenguaje natural",
@@ -102,7 +102,7 @@ if index is not None and is_configured():
         validate_index(index)
         with st.spinner("Buscando títulos relacionados…"):
             query_vector = cached_query_embedding(query)
-            ranked = rank_titles(index, query_vector)
+            ranked = hybrid_rank_titles(index, query, query_vector)
             labs = recommend(index, ranked, group_by="lab")
             people = recommend(index, ranked, group_by="person")
         semantic = True
@@ -247,9 +247,9 @@ else:
 explain(
     """
 **Qué se compara.** Cuando el índice y la API están disponibles, la idea se transforma en un
-vector y se compara con vectores de títulos. Así pueden acercarse expresiones distintas o
-de idiomas diferentes. Si la búsqueda semántica falla, la página conserva la búsqueda por
-palabras y pares de palabras.
+vector que recupera títulos de significado parecido, incluso entre idiomas. BM25 añade
+coincidencias literales para términos técnicos y el ranking combina ambas señales. Si falla
+la búsqueda híbrida, la página conserva la búsqueda local por palabras y pares de palabras.
 
 **Qué significan los resultados.** La afinidad es relativa al resultado mejor posicionado en
 esta búsqueda; no es una probabilidad de éxito ni una evaluación de la calidad del asesor.

@@ -87,10 +87,11 @@ El archivo `data/title_embeddings.parquet` se regenera con los demás datos y se
 no se versiona.
 
 Al presionar **Buscar afinidades**, la idea escrita por el visitante se envía a Alibaba Cloud
-para obtener su vector. La página limita la entrada a 500 caracteres y conserva los resultados
-en caché temporal para evitar llamadas repetidas durante los reruns de Streamlit. Si falta la
-llave o el índice, o si falla el servicio, «Encuentra tu lab» usa la búsqueda local por términos.
-No se deben introducir datos personales o confidenciales en la idea.
+para obtener su vector. BM25 también busca coincidencias literales en el catálogo y Reciprocal
+Rank Fusion combina ambos rankings. La página limita la entrada a 500 caracteres y conserva
+los resultados en caché temporal para evitar llamadas repetidas durante los reruns de Streamlit.
+Si falta la llave o el índice, o si falla el servicio, «Encuentra tu lab» usa la búsqueda local
+por términos. No se deben introducir datos personales o confidenciales en la idea.
 
 ## 1b. Métricas y publicaciones de OpenAlex (opcional)
 

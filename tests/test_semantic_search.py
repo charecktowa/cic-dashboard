@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from semantic_search import rank_titles, recommend, validate_index
+from semantic_search import bm25_scores, hybrid_rank_titles, rank_titles, recommend, validate_index
 
 
 def index_frame() -> pl.DataFrame:
@@ -70,3 +70,49 @@ def test_validate_index_rejects_a_stale_model() -> None:
     index = index_frame().with_columns(model=pl.lit("otro-modelo"))
     with pytest.raises(ValueError, match="no son compatibles"):
         validate_index(index)
+
+
+def test_bm25_matches_acronyms_and_hyphenated_terms() -> None:
+    scores = bm25_scores(
+        "Aplicaciones de seguridad con Man-in-the-Middle para casos de malware",
+        [
+            "Detección de software malicioso",
+            "Análisis de malware en aplicaciones IoT",
+            "Man-in-the-Middle malware detection",
+        ],
+    )
+    assert scores[2] > scores[1] > scores[0]
+
+
+def test_hybrid_ranking_promotes_literal_match_without_losing_semantic_rank() -> None:
+    index = pl.DataFrame(
+        {
+            "title_id": ["semantic", "exact", "unrelated"],
+            "title": [
+                "Detección de software malicioso",
+                "Man-in-the-Middle malware detection",
+                "Robótica móvil",
+            ],
+            "source": ["Tesis", "Artículo", "Proyecto"],
+            "person": ["Asesora A", "Asesor B", "Asesor C"],
+            "lab": ["Ciberseguridad", "Ciberseguridad", "Robótica"],
+            "embedding": [[1.0, 0.0], [0.8, 0.6], [0.0, 1.0]],
+            "model": ["qwen3.7-text-embedding"] * 3,
+            "dimension": [1024] * 3,
+        }
+    )
+    ranked = hybrid_rank_titles(
+        index,
+        "Aplicaciones de seguridad con Man-in-the-Middle para casos de malware",
+        [1.0, 0.0],
+    )
+    assert ranked["title_id"].to_list()[0] == "exact"
+    assert ranked["bm25_score"][0] > 0
+    assert ranked["semantic_score"][0] < 1
+
+
+def test_hybrid_ranking_uses_semantic_results_when_bm25_has_no_hits() -> None:
+    index = index_frame()
+    ranked = hybrid_rank_titles(index, "privacy healthcare", [0.0, 1.0])
+    assert ranked["title_id"][0] == "c"
+    assert ranked["bm25_score"].sum() == 0
