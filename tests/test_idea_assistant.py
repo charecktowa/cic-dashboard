@@ -108,6 +108,8 @@ def test_advisor_summary_cites_the_given_works_by_number(monkeypatch: pytest.Mon
         {"resumen": "Trabaja imágenes [1] y radiografías [2, 99].", "obra": 1},
         {"resumen": "Trabaja imágenes [1] y radiografías [1-3].", "obra": 1},
         {"resumen": "Trabaja imágenes [1] y radiografías [obra 2].", "obra": 1},
+        # Otras cifras Unicode tampoco: la lista se numera con 1, 2, 3.
+        {"resumen": "Trabaja imágenes [1] y radiografías [٢].", "obra": 1},
         # La obra elegida no existe, o no es un número.
         {"resumen": "Trabaja imágenes [1].", "obra": 5},
         {"resumen": "Trabaja imágenes [1].", "obra": "1"},

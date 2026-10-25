@@ -104,10 +104,10 @@ datos que no estén en los títulos. Si la relación es parcial, dilo."""
 MAX_SUMMARY_CHARS = 900
 # Cada grupo entre corchetes que lleva un dígito es una cita, y debe ser un solo número:
 # "[2, 99]" o "[1-3]" mostrarían obras que nadie validó. Se buscan los grupos y luego el
-# dígito, sin una regex que pueda retroceder de más.
+# dígito, sin una regex que pueda retroceder de más. Solo cifras ASCII: "[٢]" no es "[2]".
 BRACKETS = re.compile(r"\[([^\]]*)\]")
 DIGIT = re.compile(r"\d")
-NUMBER = re.compile(r"\d+")
+NUMBER = re.compile(r"\d+", re.ASCII)
 
 
 @dataclass(frozen=True)
