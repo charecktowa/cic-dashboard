@@ -1,5 +1,6 @@
 """Búsqueda de laboratorios y asesores a partir de una idea de tesis."""
 
+import re
 import threading
 from dataclasses import dataclass
 
@@ -40,6 +41,7 @@ from semantic_search import (
     lexical_variants,
     prepare_index,
     recommend,
+    uncovered_words,
 )
 
 EXAMPLES = {
@@ -137,6 +139,14 @@ class Results:
     notices: list[tuple[str, str, str]]
 
 
+def as_written(query: str, term: str) -> str:
+    """El término como lo escribió el visitante, con sus acentos ("odontología")."""
+    for raw in re.findall(r"[\w-]+", query):
+        if text.words(raw) == [term]:
+            return raw
+    return term
+
+
 def recognized_terms(query: str) -> list[str]:
     """Los términos de la idea que aparecen en el catálogo."""
     known = set(load("term_df")["term"])
@@ -196,6 +206,15 @@ def run_search(query: str) -> Results:
             "coincidencia de términos."
         )
         return term_results(query, [("warning", warning, ":material/cloud_off:")])
+    missing = [
+        f"«{as_written(query, term)}»" for term in uncovered_words(query, index.corpus, variants)
+    ]
+    if missing:
+        info = (
+            f"Ningún título del catálogo menciona {', '.join(missing)}. Las sugerencias se basan "
+            "en el resto de tu idea y en temas parecidos: tómalas como un punto de partida."
+        )
+        notices.append(("info", info, ":material/search_off:"))
     return Results(query, recognized_terms(query), labs, people, variants, True, notices)
 
 
@@ -395,7 +414,14 @@ la búsqueda local por palabras y pares de palabras.
 
 **Qué significan los resultados.** La afinidad es relativa al resultado mejor posicionado en
 esta búsqueda; no es una probabilidad de éxito ni una evaluación de la calidad del asesor.
-Cada recomendación muestra la obra que más contribuyó a que apareciera.
+Cada recomendación muestra la obra que más contribuyó a que apareciera. Primero, cada obra
+respalda a una sola persona y a un solo laboratorio, el de quien la dirige o encabeza, para
+que un proyecto con muchos integrantes no llene la lista; los demás pueden aparecer por otra
+obra suya. Si después sobran lugares, una obra ya usada puede respaldar a alguien más, como
+un coasesor que no tiene otra obra relacionada.
+
+En la búsqueda semántica, si ningún título del catálogo menciona una palabra de tu idea de 6
+letras o más, la página lo dice.
 
 **Limitaciones.** Solo se leen títulos, no resúmenes. Las tesis se vinculan con Director 1 y
 Director 2; los comités no cuentan como experiencia de dirección. Es una herramienta para

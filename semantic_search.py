@@ -21,6 +21,18 @@ BM25_B = 0.75
 VARIANT_SIMILARITY = 0.82
 VARIANT_WEIGHT = 0.65
 MAX_TERM_VARIANTS = 4
+# Letras iniciales que una variante debe compartir con la palabra de la idea.
+PREFIX = 3
+# Palabras más cortas suelen ser de relleno ("hacer", "usar"): no merecen un aviso.
+MIN_UNCOVERED = 6
+# Quién representa una obra con varios integrantes: el papel más directo primero.
+ROLE_ORDER = {
+    "Director 1": 0,
+    "Responsable técnico": 0,
+    "Autor": 1,
+    "Director 2": 1,
+    "Colaborador": 2,
+}
 
 
 def validate_index(index: pl.DataFrame) -> None:
@@ -87,7 +99,14 @@ def prepare_index(index: pl.DataFrame) -> TitleIndex:
         raise ValueError("Los embeddings deben tener norma distinta de cero")
     titles = unique.select("title_id", "title")
     return TitleIndex(
-        links=index.select("title_id", "title", "source", "person", "lab"),
+        links=index.select(
+            "title_id",
+            "title",
+            "source",
+            "person",
+            "lab",
+            role=pl.col("role") if "role" in index.columns else pl.lit(None, dtype=pl.String),
+        ),
         titles=titles,
         unit_vectors=matrix / norms,
         corpus=Corpus.of(titles["title"].to_list()),
@@ -127,7 +146,9 @@ def lexical_variants(query: str, corpus: Corpus) -> dict[str, list[str]]:
         candidates = [
             (SequenceMatcher(None, term, candidate).ratio(), candidate)
             for candidate in vocabulary
-            if abs(len(term) - len(candidate)) <= 3
+            # Mismo comienzo: "deteccion" y "detection" sí; "odontologia" y "ontologia", que
+            # se parecen en 82% de sus letras, no.
+            if abs(len(term) - len(candidate)) <= 3 and candidate[:PREFIX] == term[:PREFIX]
         ]
         matches = sorted(
             (
@@ -140,6 +161,23 @@ def lexical_variants(query: str, corpus: Corpus) -> dict[str, list[str]]:
         if matches:
             variants[term] = [candidate for _, candidate in matches]
     return variants
+
+
+def uncovered_words(query: str, corpus: Corpus, variants: dict[str, list[str]]) -> list[str]:
+    """Palabras de la idea que ningún título del catálogo menciona, ni con una variante.
+
+    Es literal a propósito: con el embedding de una palabra suelta, las ausentes y las raras
+    se parecen igual a los títulos (0.45–0.58 contra 0.51–0.68 de similitud), y ningún umbral
+    las separa sin equivocarse con varias.
+    """
+    return [
+        term
+        for term in text.terms(query)
+        if " " not in term
+        and len(term) >= MIN_UNCOVERED
+        and not corpus.document_frequency.get(term)
+        and term not in variants
+    ]
 
 
 def bm25_scores(query: str, corpus: Corpus) -> np.ndarray:
@@ -254,9 +292,11 @@ def recommend(
 ) -> pl.DataFrame:
     """Agrupa los títulos más relevantes por persona o laboratorio.
 
-    Cada grupo se ordena por su título mejor posicionado (el menor `rank`), para que quienes
-    tienen más registros no acumulen una ventaja por volumen y para que el orden del reranker,
-    cuando lo hay, decida. La obra que lo justificó se conserva como evidencia.
+    Se recorren las obras de la mejor posicionada (el menor `rank`) hacia abajo, y cada obra
+    respalda a un solo grupo nuevo: el de papel más directo (ROLE_ORDER). Así una obra con
+    varios integrantes no llena la lista y los demás pueden entrar por otra obra suya. Si al
+    final sobran lugares, se llenan reutilizando obras, en el mismo orden. Quien tiene más
+    registros no acumula ventaja por volumen. La obra que lo justificó queda como evidencia.
     """
     if group_by not in {"person", "lab"}:
         raise ValueError("group_by debe ser 'person' o 'lab'")
@@ -276,33 +316,50 @@ def recommend(
     if ranked.is_empty() or index.links.is_empty():
         return pl.DataFrame(schema=schema)
 
+    # Se ordena por papel antes de quitar repetidos: si dos integrantes de un laboratorio
+    # firman la misma obra, ese laboratorio la representa con el papel más directo.
     links = (
         index.links.join(ranked.head(EVIDENCE_LIMIT), on="title_id", how="inner")
         .filter(pl.col(group_by).is_not_null())
-        .sort("rank")
+        .with_columns(role_order=pl.col("role").replace_strict(ROLE_ORDER, default=len(ROLE_ORDER)))
+        .sort("rank", "role_order", group_by)
         .unique(subset=["title_id", "source", group_by], keep="first", maintain_order=True)
     )
     if links.is_empty():
         return pl.DataFrame(schema=schema)
 
-    # `links` va ordenado por rank: el primer título de cada grupo es el mejor posicionado.
-    aggregations = {
-        "best_rank": pl.col("rank").min(),
-        "score": pl.col("score").first(),
-        "evidence_title": pl.col("title").first(),
-        "evidence_source": pl.col("source").first(),
-        "evidence_count": pl.col("title_id").n_unique().cast(pl.UInt32),
-    }
-    if group_by == "person":
-        aggregations["lab"] = pl.col("lab").drop_nulls().first()
+    chosen: dict[str, dict] = {}
+    for _, work in links.group_by("title_id", maintain_order=True):
+        newcomer = next((r for r in work.iter_rows(named=True) if r[group_by] not in chosen), None)
+        if newcomer is not None:
+            chosen[newcomer[group_by]] = newcomer
+        if len(chosen) == limit:
+            break
+    # Lugares libres: quienes solo aparecen en obras ya usadas, en el orden de esas obras.
+    for row in links.iter_rows(named=True):
+        if len(chosen) == limit:
+            break
+        chosen.setdefault(row[group_by], row)
+    order = {key: position for position, key in enumerate(chosen)}
 
+    extra = {"lab": pl.col("lab").drop_nulls().first()} if group_by == "person" else {}
+    counts = links.group_by(group_by).agg(
+        evidence_count=pl.col("title_id").n_unique().cast(pl.UInt32), **extra
+    )
+    evidence = pl.DataFrame(
+        [(key, row["score"], row["title"], row["source"]) for key, row in chosen.items()],
+        schema={
+            group_by: pl.String,
+            "score": pl.Float64,
+            "evidence_title": pl.String,
+            "evidence_source": pl.String,
+        },
+        orient="row",
+    )
     grouped = (
-        links.group_by(group_by, maintain_order=True)
-        .agg(**aggregations)
+        evidence.join(counts, on=group_by, how="left")
+        .sort(pl.col(group_by).replace_strict(order, return_dtype=pl.UInt32))
         .with_columns(matched=pl.col("evidence_source") + pl.lit(" · ") + pl.col("evidence_title"))
-        .sort(["best_rank", group_by])
-        .head(limit)
-        .drop("best_rank")
     )
     top = cast(float, grouped["score"].max() or 0.0)
     return grouped.with_columns(

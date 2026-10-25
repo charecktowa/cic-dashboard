@@ -862,3 +862,12 @@ def test_a_broken_index_falls_back_to_terms(semantic_finder: list[str]) -> None:
     assert not app.exception, app.exception
     assert any("No se pudo completar la búsqueda semántica" in w.value for w in app.warning)
     assert semantic_finder == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_finder_says_when_no_title_mentions_a_word(semantic_finder: list[str]) -> None:
+    app = search_finder(open_page("encuentra"), "visión por computadora para odontología")
+    assert not app.exception, app.exception
+    notices = [i.value for i in app.info if "Ningún título del catálogo menciona" in i.value]
+    # Con su acento, como la escribió el visitante.
+    assert notices and "«odontología»" in notices[0]

@@ -5,6 +5,7 @@ import http.client
 import io
 import json
 import logging
+import ssl
 import urllib.error
 import urllib.request
 from typing import Any
@@ -113,6 +114,10 @@ def test_embed_texts_turns_api_errors_into_embedding_errors(api: FakePost) -> No
         embeddings([[0.1, 0.2]]),
         embeddings([[float("nan")] * dashscope_client.DIMENSION]),
         {"output": {"embeddings": ["no es un objeto"]}},
+        {"output": {"embeddings": [{"text_index": None, "embedding": vector()}]}},
+        {"output": {"embeddings": [{"text_index": "0", "embedding": vector()}]}},
+        {"output": {"embeddings": [{"text_index": True, "embedding": vector()}]}},
+        {"output": {"embeddings": [{"text_index": 3, "embedding": vector()}]}},
         {"output": "sin vectores"},
         {},
     ],
@@ -197,6 +202,8 @@ def test_post_sends_the_key_in_a_header_not_the_url(monkeypatch: pytest.MonkeyPa
         (urllib.error.URLError("sin red"), "No se pudo conectar"),
         (TimeoutError(), "No se pudo conectar"),
         (http.client.IncompleteRead(b'{"output"'), "No se pudo conectar"),
+        (ssl.SSLError("certificado"), "No se pudo conectar"),
+        (http.client.BadStatusLine("HTTP/1.1 ???"), "No se pudo conectar"),
     ],
 )
 def test_post_reports_failures_without_the_key(
@@ -269,3 +276,32 @@ def test_post_gives_up_after_the_last_retry(monkeypatch: pytest.MonkeyPatch) -> 
     with pytest.raises(dashscope_client.ApiError, match="HTTP 503"):
         dashscope_client.post("services/x", {}, KEY, retries=2)
     assert waits == [1, 2]
+
+
+def test_embed_texts_rejects_repeated_indices_instead_of_crossing_vectors(api: FakePost) -> None:
+    api.reply = {
+        "output": {
+            "embeddings": [
+                {"text_index": 0, "embedding": vector(0.2)},
+                {"text_index": 0, "embedding": vector(0.1)},
+            ]
+        }
+    }
+    with pytest.raises(dashscope_client.EmbeddingError, match="índice válido"):
+        dashscope_client.embed_texts(["a", "b"])
+
+
+class BrokenBody(io.BytesIO):
+    """Un cuerpo de error que se corta al leerlo."""
+
+    def read(self, *args: Any) -> bytes:
+        raise http.client.IncompleteRead(b'{"code"')
+
+
+def test_post_survives_an_error_body_that_cannot_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    failure = urllib.error.HTTPError(
+        dashscope_client.BASE_URL, 503, "error", email.message.Message(), BrokenBody()
+    )
+    scripted_urlopen(monkeypatch, [failure])
+    with pytest.raises(dashscope_client.ApiError, match=r"HTTP 503 \(sin código\)"):
+        dashscope_client.post("services/x", {}, KEY)

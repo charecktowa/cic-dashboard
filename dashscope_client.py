@@ -86,20 +86,17 @@ def send(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
     except urllib.error.HTTPError as error:
         # DashScope explica el error en el cuerpo; solo se conserva su código, como
         # "InvalidApiKey", que no repite nada de la petición.
+        # Leer ese cuerpo también puede fallar si la conexión se corta.
         try:
             code = json.loads(error.read()).get("code") or "sin código"
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError, OSError, http.client.HTTPException):
             code = "sin código"
         message = f"DashScope respondió con HTTP {error.code} ({code})"
         raise failure(path, message, transient=error.code in RETRY_CODES) from None
-    except (
-        urllib.error.URLError,
-        http.client.IncompleteRead,
-        TimeoutError,
-        ConnectionError,
-        ValueError,
-    ) as error:
-        # El nombre de la clase basta para saber qué pasó, sin su mensaje.
+    except (OSError, http.client.HTTPException, ValueError) as error:
+        # Las familias completas y no una lista: OSError abarca la red, los tiempos de espera
+        # y TLS (ssl.SSLError); HTTPException, una respuesta rota o cortada. El nombre de la
+        # clase basta para saber qué pasó, sin su mensaje.
         message = f"No se pudo conectar con DashScope ({type(error).__name__})"
         raise failure(path, message, transient=not isinstance(error, ValueError)) from None
     if not isinstance(reply, dict):
@@ -155,8 +152,16 @@ def embed_texts(texts: Sequence[str], *, text_type: TextType = "document") -> li
     ):
         raise EmbeddingError("DashScope devolvió una cantidad inesperada de vectores")
 
-    embeddings.sort(key=lambda item: item.get("text_index", item.get("index", 0)))
-    vectors = [item.get("embedding") for item in embeddings]
+    # Cada vector dice a qué texto corresponde. Deben ser exactamente 0…n-1: un índice
+    # repetido cruzaría los vectores sin ningún error, y al construir el índice guardaría un
+    # vector bajo el título equivocado.
+    positions = [item.get("text_index", item.get("index")) for item in embeddings]
+    if any(type(position) is not int for position in positions) or sorted(positions) != list(
+        range(len(texts))
+    ):
+        raise EmbeddingError("DashScope devolvió vectores sin un índice válido para cada texto")
+    by_position = dict(zip(positions, embeddings, strict=True))
+    vectors = [by_position[position].get("embedding") for position in range(len(texts))]
     if any(
         not isinstance(vector, list)
         or len(vector) != DIMENSION

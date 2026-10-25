@@ -12,6 +12,7 @@ from semantic_search import (
     prepare_index,
     rank_titles,
     recommend,
+    uncovered_words,
     validate_index,
 )
 
@@ -50,18 +51,61 @@ def test_rank_titles_deduplicates_shared_titles_and_uses_cosine() -> None:
     assert ranked["rank"].to_list() == [1, 2, 3, 4]
 
 
-def test_recommend_uses_best_evidence_and_preserves_co_advisors() -> None:
+def test_recommend_keeps_co_advisors_when_there_is_room() -> None:
     index = prepare_index(index_frame())
     ranked = rank_titles(index, [1.0, 0.0])
     people = recommend(index, ranked, group_by="person", limit=5)
     rows = {row["person"]: row for row in people.iter_rows(named=True)}
     assert set(rows) == {"Asesora A", "Asesor B", "Asesor C"}
-    assert rows["Asesora A"]["evidence_title"] == "Seguridad con malware"
+    # "Seguridad con malware" es de las dos personas: respalda a una, y Asesora A entra por
+    # su otra obra. Asesor B solo tiene esa, y entra porque sobra lugar.
     assert rows["Asesor B"]["evidence_title"] == "Seguridad con malware"
+    assert rows["Asesora A"]["evidence_title"] == "Detección de software malicioso"
     assert rows["Asesora A"]["evidence_count"] == 2
     assert rows["Asesor B"]["evidence_count"] == 1
     assert rows["Asesora A"]["lab"] == "Ciberseguridad"
     assert "lab" in recommend(index, ranked.head(0), group_by="person").columns
+
+
+SHARED = "Aplicaciones de aprendizaje profundo"
+
+
+def shared_work_frame() -> pl.DataFrame:
+    """Un proyecto genérico de tres personas arriba; cada una tiene otra obra más abajo."""
+    rows = [
+        ("p", SHARED, "Proyecto", "Colaboradora", "Colaborador", [1.0, 0.0]),
+        ("p", SHARED, "Proyecto", "Responsable", "Responsable técnico", [1.0, 0.0]),
+        ("p", SHARED, "Proyecto", "Otro colaborador", "Colaborador", [1.0, 0.0]),
+        ("t1", "Segmentación de radiografías", "Tesis", "Colaboradora", "Director 1", [0.9, 0.1]),
+        ("t2", "Clasificación de imágenes", "Tesis", "Otro colaborador", "Director 1", [0.8, 0.2]),
+        ("t3", "Diagnóstico por visión", "Artículo", "Tercera persona", "Autor", [0.7, 0.3]),
+    ]
+    columns = ["title_id", "title", "source", "person", "role", "embedding"]
+    return pl.DataFrame(rows, schema=columns, orient="row").with_columns(
+        lab=pl.col("person"),
+        model=pl.lit("qwen3.7-text-embedding"),
+        dimension=pl.lit(1024),
+    )
+
+
+def test_one_work_backs_one_person_the_most_direct_role() -> None:
+    index = prepare_index(shared_work_frame())
+    people = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person", limit=3)
+    # El proyecto lo representa su responsable técnico; las otras dos personas entran por su
+    # tesis, y el proyecto no se lleva los tres lugares.
+    assert people.select("person", "evidence_title").rows() == [
+        ("Responsable", SHARED),
+        ("Colaboradora", "Segmentación de radiografías"),
+        ("Otro colaborador", "Clasificación de imágenes"),
+    ]
+    assert people["affinity"].n_unique() == 3
+
+
+def test_one_work_backs_one_lab() -> None:
+    index = prepare_index(shared_work_frame())
+    labs = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="lab", limit=2)
+    assert labs["lab"].to_list() == ["Responsable", "Colaboradora"]
+    assert labs["affinity"].to_list()[1] < 100
 
 
 def test_recommend_returns_empty_for_unknown_group_or_no_links() -> None:
@@ -205,3 +249,38 @@ def test_prepare_index_keeps_links_without_vectors() -> None:
     assert index.unit_vectors.shape == (4, 2)
     assert index.unit_vectors.dtype.name == "float32"
     assert (abs((index.unit_vectors**2).sum(axis=1) - 1) < 1e-6).all()
+
+
+def test_lexical_variants_need_the_same_beginning() -> None:
+    corpus = Corpus.of(
+        ["Alineación de ontologías", "Una ontologia de dominio", "Ontological engineering"]
+        + ["Detection of fake news", "Deteccion de rostros"] * 3
+    )
+    variants = lexical_variants("odontologia y deteccions", corpus)
+    # Parecida en letras, pero otra palabra: no es variante.
+    assert "odontologia" not in variants
+    assert set(variants["deteccions"]) >= {"detection", "deteccion"}
+
+
+def test_uncovered_words_are_the_ones_no_title_mentions() -> None:
+    corpus = Corpus.of(["Detección de malware con aprendizaje profundo", "Deep learning"] * 3)
+    idea = "deep learning para odontología y detección de malwares, quiero algo"
+    variants = lexical_variants(idea, corpus)
+    # "malwares" tiene la variante "malware"; "quiero" y "algo" son de relleno.
+    assert uncovered_words(idea, corpus, variants) == ["odontologia"]
+
+
+def test_a_lab_keeps_its_most_direct_member_of_a_work() -> None:
+    rows = [
+        ("w", "Obra compartida", "Proyecto", "Colab X", "Colaborador", "X", [1.0, 0.0]),
+        ("w", "Obra compartida", "Proyecto", "Resp X", "Responsable técnico", "X", [1.0, 0.0]),
+        ("w", "Obra compartida", "Proyecto", "Autor Y", "Autor", "Y", [1.0, 0.0]),
+    ]
+    columns = ["title_id", "title", "source", "person", "role", "lab", "embedding"]
+    frame = pl.DataFrame(rows, schema=columns, orient="row").with_columns(
+        model=pl.lit("qwen3.7-text-embedding"), dimension=pl.lit(1024)
+    )
+    index = prepare_index(frame)
+    labs = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="lab", limit=1)
+    # El responsable técnico de X es el papel más directo: X representa la obra, no Y.
+    assert labs["lab"].to_list() == ["X"]
