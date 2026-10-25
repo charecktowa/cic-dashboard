@@ -16,7 +16,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --no-build
 
 COPY .streamlit ./.streamlit
-COPY app.py advisor.py common.py dashscope_client.py search_limits.py semantic_search.py text.py ./
+COPY app.py advisor.py common.py dashscope_client.py idea_assistant.py search_limits.py semantic_search.py text.py ./
 COPY views ./views
 
 USER app
