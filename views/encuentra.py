@@ -3,6 +3,7 @@
 import re
 import threading
 from dataclasses import dataclass
+from functools import partial
 
 import plotly.express as px
 import polars as pl
@@ -33,7 +34,7 @@ from dashscope_client import (
     is_configured,
     rerank_titles,
 )
-from idea_assistant import Suggestion, neighbor_areas
+from idea_assistant import Suggestion, Summary, advisor_summary, neighbor_areas
 from search_limits import SEARCHES_AT_ONCE, SearchLimiter, client_key
 from semantic_search import (
     EVIDENCE_LIMIT,
@@ -245,6 +246,49 @@ def suggest_neighbors(results: Results) -> None:
     st.session_state["neighbors"] = (results.query, "", found)
 
 
+@st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
+def cached_summary(query: str, person: str, works: tuple[str, ...]) -> Summary | None:
+    """El resumen de por qué una persona encaja con una idea, una vez por idea y persona."""
+    return advisor_summary(query, person, list(works))
+
+
+def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
+    """Por qué esta persona encaja con la idea. Solo aparece al abrir su perfil desde aquí.
+
+    Se guarda en la sesión: interactuar dentro del diálogo no vuelve a llamar al chat ni a
+    contar en los topes.
+    """
+    stored: dict[tuple[str, str], Summary | str | None] = st.session_state.setdefault(
+        "summaries", {}
+    )
+    if (query, person) not in stored:
+        limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
+        if limit:
+            stored[query, person] = LIMIT_MESSAGES[limit]
+        else:
+            try:
+                with st.spinner("Resumiendo por qué encaja con tu idea…"), search_slots():
+                    stored[query, person] = cached_summary(query, person, works)
+            except ChatError:
+                stored[query, person] = None
+    summary = stored[query, person]
+    with st.container(border=True):
+        st.markdown("**Por qué podría encajar con tu idea**")
+        if isinstance(summary, Summary):
+            # Texto plano: lo escribió un modelo y no debe interpretarse como formato.
+            st.text(summary.text)
+            st.caption("Obra seleccionada")
+            st.text(summary.work)
+            st.caption(
+                "Resumen generado por IA (Qwen) a partir de sus obras afines a tu idea; puede "
+                "equivocarse. Revisa sus trabajos antes de escribirle."
+            )
+        elif isinstance(summary, str):
+            st.caption(f"{summary}; el resumen con IA no está disponible por ahora.")
+        else:
+            st.caption("No pudimos generar el resumen esta vez.")
+
+
 def search_neighbor(query: str) -> None:
     """Lanza la búsqueda de un área vecina como si el visitante la hubiera escrito."""
     st.session_state["idea"] = query
@@ -447,7 +491,14 @@ for start in range(0, len(people_rows), 2):
                 key=f"open-{row['person']}",
                 icon=":material/open_in_full:",
             ):
-                profile_dialog(row["person"])
+                # El resumen con IA solo existe con obras afines, es decir, en la búsqueda
+                # semántica; desde la búsqueda por términos, el perfil de siempre.
+                fit = (
+                    partial(render_fit, query, row["person"], tuple(row["related"]))
+                    if semantic
+                    else None
+                )
+                profile_dialog(row["person"], intro=fit)
 
 st.subheader("¿Tu tema está creciendo?")
 if recognized:

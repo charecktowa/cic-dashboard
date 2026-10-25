@@ -970,3 +970,54 @@ def test_neighbor_areas_count_toward_the_limits(
     assert not app.exception, app.exception
     assert neighbor_chat == []
     assert any("límite de búsquedas por hora" in i.value for i in app.info)
+
+
+@pytest.fixture
+def summary_chat(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Un chat falso que resume y elige la primera obra de la lista que recibe."""
+    import idea_assistant
+
+    asked: list[str] = []
+
+    def chat_json(instructions: str, prompt: str) -> dict:
+        asked.append(prompt)
+        first = next(line[2:] for line in prompt.splitlines() if line.startswith("- "))
+        return {"resumen": "Trabaja temas cercanos a tu idea.", "obra": first}
+
+    monkeypatch.setattr(idea_assistant, "chat_json", chat_json)
+    return asked
+
+
+def open_first_profile(app: AppTest) -> AppTest:
+    next(b for b in app.button if str(b.key).startswith("open-")).click().run()
+    assert not app.exception, app.exception
+    return app
+
+
+@pytest.mark.usefixtures("tables")
+def test_profile_from_the_finder_explains_the_fit(
+    semantic_finder: list[str], summary_chat: list[str]
+) -> None:
+    import streamlit as st
+
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    assert summary_chat == []
+    open_first_profile(app)
+    assert any("Por qué podría encajar" in m.value for m in app.markdown)
+    shown = [t.value for t in app.text]
+    assert "Trabaja temas cercanos a tu idea." in shown
+    # La obra seleccionada es una de las obras afines que se le enviaron al chat.
+    ((prompt),) = summary_chat
+    assert any(f"- {text}" in prompt for text in shown if " · " in text)
+    assert any("generado por IA" in c.value for c in app.caption)
+    # Volver a abrirlo no llama otra vez al chat.
+    open_first_profile(app)
+    assert len(summary_chat) == 1
+
+
+@pytest.mark.usefixtures("tables")
+def test_profile_from_the_term_search_has_no_ai_summary(summary_chat: list[str]) -> None:
+    app = open_first_profile(search_finder(open_page("encuentra"), "deep learning"))
+    assert not any("Por qué podría encajar" in m.value for m in app.markdown)
+    assert summary_chat == []
