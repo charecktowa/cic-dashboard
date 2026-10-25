@@ -120,10 +120,20 @@ LIMIT_MESSAGES = {
 }
 
 
+def set_idea(new_text: str) -> None:
+    """Escribe en la caja de la idea desde el código, como un ejemplo o una sugerencia.
+
+    La caja está dentro de un formulario, y ahí el navegador no muestra un valor cambiado
+    desde la sesión. Con una clave nueva, Streamlit la dibuja otra vez con el texto nuevo.
+    """
+    st.session_state["idea_text"] = new_text
+    st.session_state["idea_version"] = st.session_state.get("idea_version", 0) + 1
+
+
 def use_example() -> None:
     picked = st.session_state.get("example")
     if picked:
-        st.session_state["idea"] = EXAMPLES[picked]
+        set_idea(EXAMPLES[picked])
         st.session_state.pop("results", None)
 
 
@@ -291,7 +301,7 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
 
 def search_neighbor(query: str) -> None:
     """Lanza la búsqueda de un área vecina como si el visitante la hubiera escrito."""
-    st.session_state["idea"] = query
+    set_idea(query)
     st.session_state["pending_search"] = query
 
 
@@ -312,7 +322,8 @@ st.pills(
 with st.form("finder"):
     idea = st.text_area(
         "Tu idea",
-        key="idea",
+        value=st.session_state.get("idea_text", ""),
+        key=f"idea-{st.session_state.get('idea_version', 0)}",
         placeholder="Por ejemplo: detección de emociones en texto con deep learning",
         height=90,
         max_chars=MAX_QUERY_CHARS,

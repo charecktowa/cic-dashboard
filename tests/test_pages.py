@@ -35,7 +35,7 @@ def open_page(page: str, **query: str) -> AppTest:
 
 
 def search_finder(app: AppTest, idea: str) -> AppTest:
-    app.text_area(key="idea").set_value(idea)
+    app.text_area[0].set_value(idea)
     next(
         button for button in app.form_submit_button if button.label == "Buscar afinidades"
     ).click().run()
@@ -945,7 +945,8 @@ def test_neighbor_areas_are_opt_in_and_launch_a_search(
     offered[0].click().run()
     assert not app.exception, app.exception
     # La búsqueda nueva usa la sugerencia y sí llama a la API.
-    assert app.session_state["idea"] == "deep learning y redes neuronales"
+    # La caja de la idea muestra la sugerencia: es una caja nueva con ese texto.
+    assert app.text_area[0].value == "deep learning y redes neuronales"
     assert len(semantic_finder) > sent
 
 
@@ -1021,3 +1022,13 @@ def test_profile_from_the_term_search_has_no_ai_summary(summary_chat: list[str])
     app = open_first_profile(search_finder(open_page("encuentra"), "deep learning"))
     assert not any("Por qué podría encajar" in m.value for m in app.markdown)
     assert summary_chat == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_an_example_fills_the_idea_box() -> None:
+    app = open_page("encuentra")
+    app.text_area[0].set_value("algo que escribí").run()
+    app.pills(key="example").set_value("Robots").run()
+    assert not app.exception, app.exception
+    # Una caja nueva con el texto del ejemplo: el navegador sí la muestra.
+    assert app.text_area[0].value == "robots móviles, control y navegación autónoma"
