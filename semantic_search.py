@@ -2,6 +2,7 @@
 
 import math
 from collections import Counter
+from difflib import SequenceMatcher
 from typing import cast
 
 import numpy as np
@@ -15,6 +16,9 @@ INDEX_COLUMNS = {"title_id", "title", "embedding", "model", "dimension", "source
 RRF_K = 60
 BM25_K1 = 1.5
 BM25_B = 0.75
+VARIANT_SIMILARITY = 0.82
+VARIANT_WEIGHT = 0.65
+MAX_TERM_VARIANTS = 4
 
 
 def validate_index(index: pl.DataFrame) -> None:
@@ -60,13 +64,52 @@ def rank_titles(index: pl.DataFrame, query_vector: list[float]) -> pl.DataFrame:
     return ranked
 
 
+def lexical_variants(query: str, titles: list[str]) -> dict[str, list[str]]:
+    """Busca variantes léxicas cercanas presentes en el catálogo, sin modelo externo."""
+    query_terms = text.terms(query)
+    if not query_terms or not titles:
+        return {}
+
+    documents = [text.terms(title) for title in titles]
+    vocabulary = {term for terms in documents for term in terms if " " not in term}
+    variants: dict[str, list[str]] = {}
+    for term in query_terms:
+        if " " in term or term in vocabulary or len(term) < 6:
+            continue
+        candidates = [
+            (SequenceMatcher(None, term, candidate).ratio(), candidate)
+            for candidate in vocabulary
+            if abs(len(term) - len(candidate)) <= 3
+        ]
+        matches = sorted(
+            (
+                (similarity, candidate)
+                for similarity, candidate in candidates
+                if similarity >= VARIANT_SIMILARITY
+            ),
+            key=lambda match: (-match[0], match[1]),
+        )[:MAX_TERM_VARIANTS]
+        if matches:
+            variants[term] = [candidate for _, candidate in matches]
+    return variants
+
+
 def bm25_scores(query: str, titles: list[str]) -> np.ndarray:
-    """Calcula BM25 por título con los mismos términos y pares que usa el catálogo."""
+    """Calcula BM25 y añade coincidencias aproximadas de términos poco comunes."""
     query_terms = text.terms(query)
     if not query_terms or not titles:
         return np.zeros(len(titles), dtype=np.float64)
 
     documents = [text.terms(title) for title in titles]
+    variants = lexical_variants(query, titles)
+    term_weights = dict.fromkeys(query_terms, 1.0)
+    term_weights.update(
+        {
+            variant: max(term_weights.get(variant, 0.0), VARIANT_WEIGHT)
+            for matches in variants.values()
+            for variant in matches
+        }
+    )
     lengths = np.asarray([len(terms) for terms in documents], dtype=np.float64)
     average_length = float(lengths.mean()) if len(lengths) else 0.0
     if average_length == 0:
@@ -75,7 +118,7 @@ def bm25_scores(query: str, titles: list[str]) -> np.ndarray:
     document_frequency = Counter(term for terms in documents for term in set(terms))
     total_documents = len(documents)
     scores = np.zeros(total_documents, dtype=np.float64)
-    for term in query_terms:
+    for term, weight in term_weights.items():
         frequency = document_frequency.get(term, 0)
         if not frequency:
             continue
@@ -86,7 +129,9 @@ def bm25_scores(query: str, titles: list[str]) -> np.ndarray:
                 denominator = term_frequency + BM25_K1 * (
                     1 - BM25_B + BM25_B * lengths[index] / average_length
                 )
-                scores[index] += inverse_frequency * term_frequency * (BM25_K1 + 1) / denominator
+                scores[index] += (
+                    weight * inverse_frequency * term_frequency * (BM25_K1 + 1) / denominator
+                )
     return scores
 
 

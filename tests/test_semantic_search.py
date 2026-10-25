@@ -3,7 +3,14 @@
 import polars as pl
 import pytest
 
-from semantic_search import bm25_scores, hybrid_rank_titles, rank_titles, recommend, validate_index
+from semantic_search import (
+    bm25_scores,
+    hybrid_rank_titles,
+    lexical_variants,
+    rank_titles,
+    recommend,
+    validate_index,
+)
 
 
 def index_frame() -> pl.DataFrame:
@@ -84,6 +91,19 @@ def test_bm25_matches_acronyms_and_hyphenated_terms() -> None:
         ],
     )
     assert scores[2] > scores[1] > scores[0]
+
+
+def test_lexical_variants_match_spanish_and_english_forms() -> None:
+    titles = [
+        "Clasificación automática de hipertrofia adenoidea en imágenes médicas",
+        "A Hybrid Approach for Adenoid Hypertrophy Detection in X-Ray Images",
+        *(f"Detección de aplicaciones con redes neuronales {index}" for index in range(40)),
+    ]
+    variants = lexical_variants("detección de adenoides", titles)
+    assert variants["adenoides"] == ["adenoidea", "adenoid"]
+    scores = bm25_scores("detección de adenoides", titles)
+    assert scores[0] > scores[2]
+    assert scores[1] > scores[2]
 
 
 def test_hybrid_ranking_promotes_literal_match_without_losing_semantic_rank() -> None:

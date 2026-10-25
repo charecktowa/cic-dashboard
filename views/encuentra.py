@@ -13,7 +13,7 @@ from dashscope_client import (
     embed_query,
     is_configured,
 )
-from semantic_search import hybrid_rank_titles, recommend, validate_index
+from semantic_search import hybrid_rank_titles, lexical_variants, recommend, validate_index
 
 EXAMPLES = {
     "Noticias falsas": "detección de noticias falsas en redes sociales con lenguaje natural",
@@ -95,6 +95,16 @@ term_counts = dict(load("term_df").iter_rows())
 recognized = [term for term in text.terms(query) if term in term_counts]
 ignored = [term for term in text.terms(query) if " " not in term and term not in recognized]
 index = load_optional("title_embeddings")
+variants = (
+    lexical_variants(
+        query,
+        index.select("title_id", "title")
+        .unique(subset="title_id", keep="first", maintain_order=True)["title"]
+        .to_list(),
+    )
+    if index is not None
+    else {}
+)
 semantic = False
 
 if index is not None and is_configured():
@@ -126,7 +136,11 @@ if recognized:
         for term in recognized[:16]:
             st.badge(f"{term} · {term_counts.get(term, 0):,} títulos", color="primary")
         for term in ignored[:8]:
-            st.badge(f"{term} · sin títulos", color="gray")
+            if term in variants:
+                matches = ", ".join(variants[term][:3])
+                st.badge(f"{term} ≈ {matches}", color="primary")
+            else:
+                st.badge(f"{term} · sin títulos", color="gray")
 elif semantic:
     st.caption(
         "No hay coincidencias literales suficientes; los resultados usan similitud semántica."
