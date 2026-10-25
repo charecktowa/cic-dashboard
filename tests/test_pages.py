@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import logging
 import math
 from collections.abc import Iterator
 from pathlib import Path
@@ -767,6 +768,28 @@ def test_finder_uses_semantic_search_within_the_limits(semantic_finder: list[str
     assert not app.exception, app.exception
     assert any("Alibaba Cloud" in c.value for c in app.caption)
     assert semantic_finder
+
+
+@pytest.mark.usefixtures("tables")
+def test_each_search_leaves_one_log_line_without_the_idea(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import streamlit as st
+
+    from search_limits import SearchLimiter
+
+    st.cache_data.clear()
+    idea = "visión por computadora con redes neuronales"
+    with caplog.at_level(logging.INFO, logger="cic"):
+        search_finder(open_page("encuentra"), idea)
+        monkeypatch.setattr(SearchLimiter, "allow", lambda self, client: "hora")
+        search_finder(open_page("encuentra"), idea)
+    lines = [r.getMessage() for r in caplog.records if r.name == "cic.encuentra"]
+    assert [line.split(" en ")[0] for line in lines] == [
+        "búsqueda semántica",
+        "búsqueda por términos: tope (hora)",
+    ]
+    assert "visión" not in caplog.text and "neuronales" not in caplog.text
 
 
 @pytest.mark.usefixtures("tables")

@@ -45,7 +45,7 @@ RETRY_CODES = {429, 500, 502, 503, 504}
 BACKOFF = (1, 2, 4, 8)
 # Las fallas quedan en el log del servidor (docker logs) con su código, nunca con la llave
 # ni con la idea: así se distingue una llave vencida o sin saldo de una caída pasajera.
-log = logging.getLogger(__name__)
+log = logging.getLogger("cic.dashscope")
 
 
 class ApiError(RuntimeError):
