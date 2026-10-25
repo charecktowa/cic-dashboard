@@ -368,13 +368,22 @@ def test_a_work_listed_twice_counts_once() -> None:
         ("b", "Sistema para detectar cancer", "Proyecto", "Repetida", [0.99, 0.141]),
         ("b2", "Sistema para-detectar cancer", "Congreso", "Repetida", [0.98, 0.199]),
         ("c", "Otra obra afín", "Tesis", "Repetida", [0.9, 0.436]),
+        # Dos obras distintas, un poco menos afines que el proyecto repetido.
+        ("r1", "Clasificación de tumores", "Tesis", "Rival", [0.995, 0.0999]),
+        ("r2", "Mamografías con redes profundas", "Artículo", "Rival", [0.97, 0.243]),
     ]
     frame = pl.DataFrame(
         rows, schema=["title_id", "title", "source", "person", "embedding"], orient="row"
-    ).with_columns(lab=pl.lit("L"), model=pl.lit("qwen3.7-text-embedding"), dimension=pl.lit(1024))
+    ).with_columns(
+        lab=pl.col("person"), model=pl.lit("qwen3.7-text-embedding"), dimension=pl.lit(1024)
+    )
     index = prepare_index(frame)
-    person = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person").row(0, named=True)
+    people = recommend(index, rank_titles(index, [1.0, 0.0]), group_by="person")
+    repeated = people.filter(pl.col("person") == "Repetida").row(0, named=True)
     # El mismo proyecto escrito de tres formas (mayúsculas, acentos, guion) es una obra: dos
     # obras afines, no cuatro.
-    assert person["evidence_count"] == 2
-    assert len(person["related"]) == 2
+    assert repeated["evidence_count"] == 2
+    assert len(repeated["related"]) == 2
+    # Y no infla el orden: Repetida vale 1.0 + 0.9/2 = 1.45 y Rival 0.995 + 0.97/2 = 1.48.
+    # Si las copias sumaran, Repetida valdría 1.74 y quedaría arriba.
+    assert people["person"].to_list() == ["Rival", "Repetida"]
