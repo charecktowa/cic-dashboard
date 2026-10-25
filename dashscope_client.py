@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Sequence
@@ -30,6 +31,10 @@ RERANK_INSTRUCTION = (
     "Prefer titles about the same task, method, or subject; do not reward superficial word overlap."
 )
 TextType = Literal["query", "document"]
+# Un 429 o un 5xx suelen pasar solos. Al construir el índice vale la pena esperar y
+# reintentar (como openalex.py); con un visitante no: mejor la búsqueda por términos ya.
+RETRY_CODES = {429, 500, 502, 503, 504}
+BACKOFF = (1, 2, 4, 8)
 # Las fallas quedan en el log del servidor (docker logs) con su código, nunca con la llave
 # ni con la idea: así se distingue una llave vencida o sin saldo de una caída pasajera.
 log = logging.getLogger(__name__)
@@ -37,6 +42,10 @@ log = logging.getLogger(__name__)
 
 class ApiError(RuntimeError):
     """DashScope no respondió, o respondió con un error HTTP."""
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
 
 
 class EmbeddingError(RuntimeError):
@@ -47,8 +56,24 @@ class RerankError(RuntimeError):
     """La API de reranking no está disponible o devolvió una respuesta inválida."""
 
 
-def post(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
-    """Un POST JSON a DashScope. La llave va en la cabecera, nunca en la URL ni en un error."""
+def post(path: str, body: dict[str, Any], api_key: str, *, retries: int = 0) -> dict[str, Any]:
+    """Un POST JSON a DashScope, con hasta `retries` reintentos si la falla es pasajera.
+
+    La llave va en la cabecera, nunca en la URL ni en un error.
+    """
+    attempt = 0
+    while True:
+        try:
+            return send(path, body, api_key)
+        except ApiError as error:
+            if not error.transient or attempt == retries:
+                raise
+            time.sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)])
+            attempt += 1
+
+
+def send(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
+    """Un solo intento de POST; convierte cada falla en ApiError."""
     request = urllib.request.Request(
         f"{BASE_URL}/{path}",
         data=json.dumps(body).encode(),
@@ -65,7 +90,8 @@ def post(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
             code = json.loads(error.read()).get("code") or "sin código"
         except (ValueError, AttributeError):
             code = "sin código"
-        raise failure(path, f"DashScope respondió con HTTP {error.code} ({code})") from None
+        message = f"DashScope respondió con HTTP {error.code} ({code})"
+        raise failure(path, message, transient=error.code in RETRY_CODES) from None
     except (
         urllib.error.URLError,
         http.client.IncompleteRead,
@@ -74,16 +100,17 @@ def post(path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
         ValueError,
     ) as error:
         # El nombre de la clase basta para saber qué pasó, sin su mensaje.
-        raise failure(path, f"No se pudo conectar con DashScope ({type(error).__name__})") from None
+        message = f"No se pudo conectar con DashScope ({type(error).__name__})"
+        raise failure(path, message, transient=not isinstance(error, ValueError)) from None
     if not isinstance(reply, dict):
         raise failure(path, "DashScope devolvió una respuesta inesperada")
     return reply
 
 
-def failure(path: str, message: str) -> ApiError:
+def failure(path: str, message: str, *, transient: bool = False) -> ApiError:
     """Deja la falla en el log del servidor y la devuelve como ApiError."""
     log.warning("%s: %s", path.rsplit("/", 1)[-1], message)
-    return ApiError(message)
+    return ApiError(message, transient=transient)
 
 
 def is_configured() -> bool:
@@ -114,6 +141,7 @@ def embed_texts(texts: Sequence[str], *, text_type: TextType = "document") -> li
             "services/embeddings/text-embedding/text-embedding",
             {"model": MODEL, "input": {"texts": list(texts)}, "parameters": parameters},
             api_key,
+            retries=len(BACKOFF) if text_type == "document" else 0,
         )
     except ApiError as error:
         raise EmbeddingError(str(error)) from None

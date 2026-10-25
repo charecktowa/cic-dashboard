@@ -22,9 +22,13 @@ class FakePost:
     def __init__(self, reply: dict[str, Any] | Exception) -> None:
         self.reply = reply
         self.calls: list[tuple[str, dict[str, Any], str]] = []
+        self.retries: list[int] = []
 
-    def __call__(self, path: str, body: dict[str, Any], api_key: str) -> dict[str, Any]:
+    def __call__(
+        self, path: str, body: dict[str, Any], api_key: str, *, retries: int = 0
+    ) -> dict[str, Any]:
         self.calls.append((path, body, api_key))
+        self.retries.append(retries)
         if isinstance(self.reply, Exception):
             raise self.reply
         return self.reply
@@ -218,3 +222,50 @@ def test_post_reports_failures_without_the_key(
     assert "idea privada" not in caplog.text
     # Sin la excepción original encadenada: un traceback tampoco la muestra.
     assert error.value.__cause__ is None and error.value.__suppress_context__
+
+
+def test_only_index_titles_are_retried(api: FakePost) -> None:
+    dashscope_client.embed_texts(["título de tesis"])
+    dashscope_client.embed_query("idea de tesis")
+    # Los títulos del índice esperan y reintentan; la idea de un visitante, no.
+    assert api.retries == [len(dashscope_client.BACKOFF), 0]
+
+
+def scripted_urlopen(
+    monkeypatch: pytest.MonkeyPatch, replies: list[Exception | bytes]
+) -> list[float]:
+    """urlopen responde en orden; devuelve las esperas que pidió post()."""
+    waits: list[float] = []
+    monkeypatch.setattr(dashscope_client.time, "sleep", waits.append)
+
+    def urlopen(request: urllib.request.Request, timeout: float) -> io.BytesIO:
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return io.BytesIO(reply)
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    return waits
+
+
+def test_post_retries_passing_failures_with_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    waits = scripted_urlopen(
+        monkeypatch,
+        [http_error(429, b"{}"), urllib.error.URLError("sin red"), b'{"output": {}}'],
+    )
+    assert dashscope_client.post("services/x", {}, KEY, retries=4) == {"output": {}}
+    assert waits == [1, 2]
+
+
+def test_post_does_not_retry_a_rejected_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    waits = scripted_urlopen(monkeypatch, [http_error(401, b'{"code": "InvalidApiKey"}')])
+    with pytest.raises(dashscope_client.ApiError, match="InvalidApiKey"):
+        dashscope_client.post("services/x", {}, KEY, retries=4)
+    assert waits == []
+
+
+def test_post_gives_up_after_the_last_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    waits = scripted_urlopen(monkeypatch, [http_error(503, b"{}")] * 3)
+    with pytest.raises(dashscope_client.ApiError, match="HTTP 503"):
+        dashscope_client.post("services/x", {}, KEY, retries=2)
+    assert waits == [1, 2]
