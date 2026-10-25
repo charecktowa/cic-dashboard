@@ -101,6 +101,10 @@ def test_advisor_summary_cites_the_given_works_by_number(monkeypatch: pytest.Mon
         {"resumen": "Trabaja imágenes [3].", "obra": 1},
         # No cita ninguna.
         {"resumen": "Trabaja imágenes médicas.", "obra": 1},
+        # Una cita válida no salva a otra con otro formato.
+        {"resumen": "Trabaja imágenes [1] y radiografías [2, 99].", "obra": 1},
+        {"resumen": "Trabaja imágenes [1] y radiografías [1-3].", "obra": 1},
+        {"resumen": "Trabaja imágenes [1] y radiografías [obra 2].", "obra": 1},
         # La obra elegida no existe, o no es un número.
         {"resumen": "Trabaja imágenes [1].", "obra": 5},
         {"resumen": "Trabaja imágenes [1].", "obra": "1"},
