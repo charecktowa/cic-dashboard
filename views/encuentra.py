@@ -289,6 +289,7 @@ def suggest_neighbors(results: Results) -> None:
     limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
     if limit or version is None:
         message = f"{LIMIT_MESSAGES[limit]}; intenta más tarde" if limit else UNAVAILABLE
+        log.info("áreas cercanas: %s", f"tope ({limit})" if limit else "sin índice")
         st.session_state["neighbors_failure"] = (asked, message)
         return
     try:
@@ -296,6 +297,7 @@ def suggest_neighbors(results: Results) -> None:
         # del semáforo: el chat solo espera la red, y no debe hacer esperar a las búsquedas.
         found = cached_neighbors(results.query, results.uncovered, version)
     except ChatError:
+        log.info("áreas cercanas: falla del chat")
         st.session_state["neighbors_failure"] = (asked, UNAVAILABLE)
         return
     log.info("áreas cercanas: %d sugerencias", len(found))
@@ -328,6 +330,7 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
     if key not in stored:
         limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
         if limit:
+            log.info("resumen con IA: tope (%s)", limit)
             stored[key] = Failure(f"{LIMIT_MESSAGES[limit]}; intenta más tarde")
         else:
             try:
@@ -337,6 +340,7 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
                     stored[key] = cached_summary(query, person, works)
                 log.info("resumen con IA: %s", "listo" if stored[key] else "sin resumen confiable")
             except ChatError:
+                log.info("resumen con IA: falla del chat")
                 stored[key] = Failure(UNAVAILABLE)
     summary = stored[key]
     with st.container(border=True):

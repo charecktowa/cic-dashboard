@@ -1003,7 +1003,10 @@ def test_neighbor_areas_count_toward_the_limits(
 
 @pytest.mark.usefixtures("tables")
 def test_a_failed_neighbor_request_can_be_retried(
-    semantic_finder: list[str], neighbor_chat: list[str], monkeypatch: pytest.MonkeyPatch
+    semantic_finder: list[str],
+    neighbor_chat: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     import streamlit as st
 
@@ -1018,9 +1021,11 @@ def test_a_failed_neighbor_request_can_be_retried(
         raise ChatError("sin red")
 
     monkeypatch.setattr(idea_assistant, "chat_json", down)
-    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    with caplog.at_level(logging.INFO, logger="cic"):
+        next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
     assert not app.exception, app.exception
     assert any("No pudimos consultar al modelo" in i.value for i in app.info)
+    assert "áreas cercanas: falla del chat" in caplog.messages
     monkeypatch.setattr(idea_assistant, "chat_json", working)
     next(b for b in app.button if b.label == "Reintentar").click().run()
     assert [b.label for b in app.button if str(b.key).startswith("neighbor-")]
@@ -1075,7 +1080,10 @@ def test_profile_from_the_finder_explains_the_fit(
 
 @pytest.mark.usefixtures("tables")
 def test_a_failed_summary_can_be_retried(
-    semantic_finder: list[str], summary_chat: list[str], monkeypatch: pytest.MonkeyPatch
+    semantic_finder: list[str],
+    summary_chat: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     import streamlit as st
 
@@ -1090,8 +1098,10 @@ def test_a_failed_summary_can_be_retried(
         raise ChatError("sin red")
 
     monkeypatch.setattr(idea_assistant, "chat_json", down)
-    open_first_profile(app)
+    with caplog.at_level(logging.INFO, logger="cic"):
+        open_first_profile(app)
     assert any("No pudimos consultar al modelo" in c.value for c in app.caption)
+    assert "resumen con IA: falla del chat" in caplog.messages
     monkeypatch.setattr(idea_assistant, "chat_json", working)
     next(b for b in app.button if b.label == "Reintentar el resumen").click().run()
     assert not app.exception, app.exception
