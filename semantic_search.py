@@ -138,18 +138,19 @@ def recommend(
         raise ValueError("group_by debe ser 'person' o 'lab'")
     if limit < 1:
         raise ValueError("limit debe ser positivo")
+    schema = {
+        group_by: pl.String,
+        "score": pl.Float64,
+        "affinity": pl.Float64,
+        "matched": pl.String,
+        "evidence_title": pl.String,
+        "evidence_source": pl.String,
+        "evidence_count": pl.UInt32,
+    }
+    if group_by == "person":
+        schema["lab"] = pl.String
     if ranked.is_empty() or index.is_empty():
-        return pl.DataFrame(
-            schema={
-                group_by: pl.String,
-                "score": pl.Float64,
-                "affinity": pl.Float64,
-                "matched": pl.String,
-                "evidence_title": pl.String,
-                "evidence_source": pl.String,
-                "evidence_count": pl.UInt32,
-            }
-        )
+        return pl.DataFrame(schema=schema)
 
     links = (
         index.select("title_id", "title", "source", "person", "lab")
@@ -159,26 +160,20 @@ def recommend(
         .unique(subset=["title_id", "source", group_by], keep="first", maintain_order=True)
     )
     if links.is_empty():
-        return pl.DataFrame(
-            schema={
-                group_by: pl.String,
-                "score": pl.Float64,
-                "affinity": pl.Float64,
-                "matched": pl.String,
-                "evidence_title": pl.String,
-                "evidence_source": pl.String,
-                "evidence_count": pl.UInt32,
-            }
-        )
+        return pl.DataFrame(schema=schema)
+
+    aggregations = {
+        "score": pl.col("score").max(),
+        "evidence_title": pl.col("title").first(),
+        "evidence_source": pl.col("source").first(),
+        "evidence_count": pl.col("title_id").n_unique().cast(pl.UInt32),
+    }
+    if group_by == "person":
+        aggregations["lab"] = pl.col("lab").drop_nulls().first()
 
     grouped = (
         links.group_by(group_by, maintain_order=True)
-        .agg(
-            score=pl.col("score").max(),
-            evidence_title=pl.col("title").first(),
-            evidence_source=pl.col("source").first(),
-            evidence_count=pl.col("title_id").n_unique().cast(pl.UInt32),
-        )
+        .agg(**aggregations)
         .with_columns(matched=pl.col("evidence_source") + pl.lit(" · ") + pl.col("evidence_title"))
         .sort(["score", group_by], descending=[True, False])
         .head(limit)

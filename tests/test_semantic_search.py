@@ -50,6 +50,8 @@ def test_recommend_uses_best_evidence_and_preserves_co_advisors() -> None:
     assert rows["Asesor B"]["evidence_title"] == "Seguridad con malware"
     assert rows["Asesora A"]["evidence_count"] == 2
     assert rows["Asesor B"]["evidence_count"] == 1
+    assert rows["Asesora A"]["lab"] == "Ciberseguridad"
+    assert "lab" in recommend(index, ranked.head(0), group_by="person").columns
 
 
 def test_recommend_returns_empty_for_unknown_group_or_no_links() -> None:
