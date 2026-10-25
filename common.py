@@ -514,5 +514,10 @@ def ratio(part: object, whole: object) -> float:
     return number(part) / max(number(whole), 1)
 
 
+def count_label(n: int, noun: str) -> str:
+    """ "1 título", "2 títulos": el sustantivo concuerda con la cantidad."""
+    return f"{n:,} {noun}" if n == 1 else f"{n:,} {noun}s"
+
+
 def fmt_share(value: float | None) -> str:
     return "—" if value is None or math.isnan(value) else f"{value:.0%}"

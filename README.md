@@ -23,8 +23,9 @@ asesor. Hecho con Streamlit y Plotly.
   excepciones son los títulos de artículos, congresos y proyectos del personal investigador,
   y los de tesis con sus directores y comité. No escribe ids ni datos de estudiantes: el
   catálogo ni siquiera guarda al alumno de cada tesis.
-- La app solo lee `data/`. No tiene conexión a la base de datos ni credenciales, y no ofrece
-  tablas de títulos ni botones de descarga.
+- La app solo lee `data/` y no tiene conexión a la base de datos. «Encuentra tu lab» puede
+  enviar la idea de búsqueda a DashScope para calcular un embedding; el resto de la app no
+  hace llamadas a servicios externos. No se ofrecen tablas de títulos ni botones de descarga.
 - Los términos que aparecen en menos de tres títulos se descartan.
 - Los títulos visibles son del personal investigador: sus artículos y congresos del catálogo
   del CIC, con año y tipo; los de [OpenAlex](https://openalex.org) (CC0), con enlace a su DOI
@@ -41,6 +42,9 @@ barra de Plotly guarda un PNG. Que todo esté agregado antes es lo que lo vuelve
 
 ```
 export.py        base de datos → data/*.parquet (solo en tu máquina)
+build_title_index.py  títulos públicos → vectores Qwen en data/ (solo en tu máquina)
+dashscope_client.py   cliente DashScope y validación de sus respuestas
+semantic_search.py    similitud vectorial y agrupación por asesor/laboratorio
 text.py          cómo se parte un texto en términos; lo usan export.py y la app
 common.py        carga de datos, etiquetas en español y utilidades de las páginas
 app.py           navegación
@@ -66,6 +70,40 @@ El grupo `export` añade `psycopg` y [Lingua](https://github.com/pemistahl/lingu
 decide si cada título está en español o en inglés. La app no los necesita y la imagen no
 los instala.
 `data/` está en `.gitignore`: se copia al servidor aparte.
+
+## 1a. Índice semántico de «Encuentra tu lab» (opcional)
+
+Después de `export.py`, genera el índice de títulos con tu llave de DashScope:
+
+```bash
+uv run --env-file .env python build_title_index.py
+```
+
+La API recibe los títulos públicos únicos del catálogo; el índice local contiene el vector y
+los vínculos a asesores, laboratorios y fuentes. Las tesis se vinculan solo con Director 1 y
+Director 2; no se envían nombres del comité ni datos de estudiantes. Se excluyen los trabajos
+de OpenAlex en esta primera versión porque el Parquet conserva una selección por citas.
+`export.py` no borra `data/title_embeddings.parquet`. Después de cada exportación vuelve a
+correr `build_title_index.py`: reutiliza los vectores ya calculados, solo paga los títulos
+nuevos y actualiza los vínculos con asesores y laboratorios. Si lo olvidas, la página lo nota: el
+índice guarda la fecha de su instantánea y, si no coincide con la de `data/`, usa la búsqueda
+por términos hasta que lo reconstruyas. El archivo se copia al VPS con
+los demás datos y no se versiona.
+
+Al presionar **Buscar afinidades**, la idea escrita por el visitante se envía a Alibaba Cloud
+para obtener su vector. BM25 también busca coincidencias literales en el catálogo y Reciprocal
+Rank Fusion combina ambos rankings. La página limita la entrada a 500 caracteres y conserva
+los resultados en caché temporal para evitar llamadas repetidas durante los reruns de Streamlit.
+Si falta la llave o el índice, o si falla el servicio, «Encuentra tu lab» usa la búsqueda local
+por términos. No se deben introducir datos personales o confidenciales en la idea.
+
+Cada búsqueda semántica se cobra a la llave: unos $0.0007 con una idea corta y hasta $0.0017
+con una de 500 caracteres, casi todo del reranker. `search_limits.py` pone tres topes: 20
+búsquedas por hora por visitante (la IP que reporta Cloudflare), 300 por hora y 2,000 por día
+en todo el sitio. Con ellos el gasto máximo ronda $3.40 al día; pasado un tope, la página usa
+la búsqueda por términos. Los contadores viven en memoria: bastan porque la app corre en un
+solo proceso, y se reinician con el contenedor. Configura además una alerta de gasto en la
+consola de Alibaba Cloud.
 
 ## 1b. Métricas y publicaciones de OpenAlex (opcional)
 
@@ -99,8 +137,11 @@ los suma. El CSV está versionado para que las correcciones no se pierdan. Sin l
 ## 2. Probar en local
 
 ```bash
-uv run streamlit run app.py
+uv run --env-file .env streamlit run app.py
 ```
+
+Sin `DASHSCOPE_API_KEY` o sin `data/title_embeddings.parquet`, la búsqueda usa el modo local
+por términos.
 
 ## 3. Desplegar en el VPS
 
@@ -112,7 +153,9 @@ rsync -av --exclude .venv --exclude .git --exclude __pycache__ --exclude '.*_cac
 ```
 
 Tu `.env` local no se copia: lleva la contraseña de Postgres y la llave de OpenAlex, que el
-VPS no necesita. Las cachés de mypy, pytest y ruff (más de 150 MB) tampoco.
+VPS no necesita. Para habilitar la búsqueda semántica, crea en el VPS un `.env` con
+`DASHSCOPE_API_KEY` y `PROXY_NETWORK`; Compose entrega la clave solo al proceso servidor.
+Las cachés de mypy, pytest y ruff (más de 150 MB) tampoco se copian.
 
 ### Conectar con Nginx Proxy Manager
 
@@ -123,8 +166,9 @@ llega por nombre. Busca cómo se llama esa red en el VPS:
 docker network ls
 ```
 
-Si no es `npm_default`, crea en el VPS un `.env` que solo lleve `PROXY_NETWORK` con el nombre
-correcto (el resto de `.env.example` es para tu máquina), y levanta el servicio:
+Si no es `npm_default`, añade `PROXY_NETWORK` al `.env` del VPS. Conserva ahí también
+`DASHSCOPE_API_KEY`; no copies las credenciales de Postgres ni OpenAlex desde tu máquina.
+Después, levanta el servicio:
 
 ```bash
 docker compose up -d --build
@@ -149,14 +193,19 @@ En Nginx Proxy Manager, crea un **Proxy Host**:
 
 ### Lo que ya trae el proyecto
 
-- **No hay nada valioso que robar.** Sin base de datos, sin credenciales, sin datos de
-  estudiantes: solo conteos derivados del sitio público del CIC.
+- **Sin base de datos ni datos de estudiantes.** Los títulos de tesis son públicos y el
+  catálogo no guarda al alumno. La clave de DashScope se configura como variable de entorno
+  del contenedor y solo se usa en el servidor Python.
 - **Los Parquet no se sirven por la web.** `enableStaticServing = false` y `data/` no está en
   ninguna ruta pública; tampoco va dentro de la imagen, se monta aparte.
 - **Contenedor endurecido**: usuario sin privilegios (uid 1000), disco de solo lectura,
   `cap_drop: ALL`, `no-new-privileges`, sin puertos publicados y 512 MB de memoria máxima.
+- **Gasto acotado en DashScope**: la búsqueda semántica tiene topes por visitante, por hora y
+  por día (`search_limits.py`). El límite por visitante usa `CF-Connecting-IP`, que solo es
+  confiable si al servidor únicamente llega Cloudflare (punto 1 de la lista siguiente).
 - **Lo que escriben los visitantes no ejecuta nada**: no hay SQL, `eval` ni
-  `unsafe_allow_html`, y el texto del buscador se reduce a letras, números y guiones.
+  `unsafe_allow_html`; el campo se limita a 500 caracteres y solo se envía al proveedor al
+  presionar Buscar.
 - **Sin detalles internos para visitantes**: ni trazas de error ni menú de desarrollador.
   La protección XSRF de Streamlit viene activada.
 

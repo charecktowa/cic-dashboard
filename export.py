@@ -38,6 +38,10 @@ MIN_TERM_TITLES = 3
 # Quien no tiene laboratorio en el CIC entra si participó en al menos estas tesis.
 MIN_EXTERNAL_THESES = 3
 TOP_COLLABORATORS = 10
+# Tablas de data/ que escriben otros scripts después de exportar: openalex.py y
+# build_title_index.py. Una exportación nueva no las borra; el índice de títulos, además,
+# guarda los vectores que build_title_index.py reutiliza para no volver a pagarlos.
+OTHER_WRITERS = ("openalex_", "title_embeddings")
 
 PG: dict[str, Any] = {
     "host": os.environ.get("POSTGRES_HOST", "localhost"),
@@ -769,11 +773,11 @@ def write(tables: dict[str, pl.DataFrame], out: Path) -> None:
         staged = [Path(staging) / f"{name}.parquet" for name in tables]
         for path, frame in zip(staged, tables.values(), strict=True):
             frame.write_parquet(path)
-        # Los archivos openalex_* los escribe openalex.py y no dependen de esta
+        # Los archivos de OTHER_WRITERS los escriben otros scripts y no dependen de esta
         # exportación. Solo se borra lo que la nueva instantánea ya no trae.
         fresh = {path.name for path in staged}
         for old in out.glob("*.parquet"):
-            if not old.name.startswith("openalex_") and old.name not in fresh:
+            if not old.name.startswith(OTHER_WRITERS) and old.name not in fresh:
                 old.unlink()
         for path in staged:
             path.replace(out / path.name)

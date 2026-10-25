@@ -173,6 +173,7 @@ name = "cic-dashboard"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "numpy" },
     { name = "plotly" },
     { name = "polars" },
     { name = "streamlit" },
@@ -193,6 +194,7 @@ export = [
 
 [package.metadata]
 requires-dist = [
+    { name = "numpy", specifier = ">=2.0" },
     { name = "plotly", specifier = ">=7.1.0" },
     { name = "polars", specifier = ">=2.0.0" },
     { name = "streamlit", specifier = ">=1.66.1" },
