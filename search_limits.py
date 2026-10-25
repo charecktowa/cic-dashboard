@@ -4,6 +4,7 @@ La app corre en un solo proceso, así que un contador en memoria lo comparten to
 sesiones; se reinicia con el contenedor, lo que solo puede dar unas búsquedas de más.
 """
 
+import logging
 import threading
 import time
 from collections import deque
@@ -11,13 +12,17 @@ from collections.abc import Callable, Mapping
 
 HOUR, DAY = 3600.0, 86400.0
 # Con la idea más larga, una búsqueda cuesta ~$0.0017 (el reranker cobra la idea por cada
-# uno de los 100 títulos): estos topes dejan el gasto en ~$3.40 al día como máximo.
-PER_CLIENT_PER_HOUR = 20
-GLOBAL_PER_HOUR = 300
-GLOBAL_PER_DAY = 2000
+# uno de los 100 títulos): estos topes dejan el gasto en ~$5.10 al día como máximo.
+# Abrir un perfil o pedir áreas cercanas también cuenta. El tope por visitante es por IP, y
+# un salón o el campus pueden salir por una sola: 60 deja buscar a un grupo entero.
+PER_CLIENT_PER_HOUR = 60
+GLOBAL_PER_HOUR = 600
+GLOBAL_PER_DAY = 3000
 # Con el índice ya preparado, cada búsqueda en curso suma ~5 MB y ~0.1 s de CPU; el tope
 # acota memoria y CPU si llegan muchas a la vez. Las demás esperan su turno.
 SEARCHES_AT_ONCE = 4
+# Cada tope alcanzado queda en el log, sin la IP: así se ve si los topes se quedan cortos.
+log = logging.getLogger("cic.topes")
 
 
 class SearchLimiter:
@@ -51,12 +56,16 @@ class SearchLimiter:
                 if not self._clients[key]:
                     del self._clients[key]
             mine = self._clients.get(client, deque())
+            limit = None
             if len(self._searches) >= self.global_per_day:
-                return "día"
-            if sum(1 for t in self._searches if t > now - HOUR) >= self.global_per_hour:
-                return "hora"
-            if len(mine) >= self.per_client_per_hour:
-                return "visitante"
+                limit = "día"
+            elif sum(1 for t in self._searches if t > now - HOUR) >= self.global_per_hour:
+                limit = "hora"
+            elif len(mine) >= self.per_client_per_hour:
+                limit = "visitante"
+            if limit:
+                log.warning("tope alcanzado: %s", limit)
+                return limit
             self._searches.append(now)
             mine.append(now)
             self._clients[client] = mine

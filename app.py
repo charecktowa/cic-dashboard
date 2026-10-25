@@ -6,8 +6,27 @@ datos y todas las gráficas se construyen con conteos agregados.
     uv run streamlit run app.py
 """
 
+import logging
+
 import streamlit as st
 
+
+@st.cache_resource
+def configure_logging() -> None:
+    """Lo que registra la app (búsquedas, topes, fallas de DashScope) sale en `docker logs`.
+
+    Va bajo el logger "cic", con fecha y nivel. Una sola vez por proceso: el caché evita que
+    dos sesiones que arrancan a la vez agreguen el handler dos veces. Nunca se registra la
+    idea del visitante ni su IP.
+    """
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    app_log = logging.getLogger("cic")
+    app_log.addHandler(handler)
+    app_log.setLevel(logging.INFO)
+
+
+configure_logging()
 st.set_page_config(page_title="El CIC en datos", page_icon="🔭", layout="wide")
 
 pages = [

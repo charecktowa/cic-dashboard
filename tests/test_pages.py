@@ -2,7 +2,9 @@
 
 import datetime
 import json
+import logging
 import math
+import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -770,6 +772,53 @@ def test_finder_uses_semantic_search_within_the_limits(semantic_finder: list[str
 
 
 @pytest.mark.usefixtures("tables")
+def test_each_search_leaves_one_log_line_without_the_idea(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import streamlit as st
+
+    from search_limits import SearchLimiter
+
+    st.cache_data.clear()
+    idea = "visión por computadora con redes neuronales"
+    with caplog.at_level(logging.INFO, logger="cic"):
+        search_finder(open_page("encuentra"), idea)
+        monkeypatch.setattr(SearchLimiter, "allow", lambda self, client: "hora")
+        search_finder(open_page("encuentra"), idea)
+    lines = [r.getMessage() for r in caplog.records if r.name == "cic.encuentra"]
+    # La línea completa, con su duración: nada más se cuela al final.
+    assert len(lines) == 2
+    assert re.fullmatch(r"búsqueda semántica en \d+\.\d s", lines[0])
+    assert re.fullmatch(r"búsqueda por términos: tope \(hora\) en \d+\.\d s", lines[1])
+    # Ninguna palabra de la idea llega al log, ni siquiera un fragmento.
+    for word in ("visión", "computadora", "redes", "neuronales"):
+        assert word not in caplog.text
+
+
+@pytest.mark.usefixtures("tables")
+def test_a_search_that_breaks_still_leaves_its_line(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import streamlit as st
+
+    import semantic_search
+
+    def broken(*args: object) -> None:
+        raise OSError("no se pudo leer el índice")
+
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    # Un índice que no se puede preparar: un error que run_search() no espera.
+    monkeypatch.setattr(semantic_search, "prepare_index", broken)
+    with caplog.at_level(logging.INFO, logger="cic"):
+        app = search_finder(open_page("encuentra"), "visión por computadora")
+    assert app.exception
+    assert [m.split(" en ")[0] for m in caplog.messages if m.startswith("búsqueda")] == [
+        "búsqueda falló"
+    ]
+
+
+@pytest.mark.usefixtures("tables")
 def test_finder_falls_back_to_terms_past_the_limit(
     semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -980,7 +1029,10 @@ def test_neighbor_areas_count_toward_the_limits(
 
 @pytest.mark.usefixtures("tables")
 def test_a_failed_neighbor_request_can_be_retried(
-    semantic_finder: list[str], neighbor_chat: list[str], monkeypatch: pytest.MonkeyPatch
+    semantic_finder: list[str],
+    neighbor_chat: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     import streamlit as st
 
@@ -995,9 +1047,11 @@ def test_a_failed_neighbor_request_can_be_retried(
         raise ChatError("sin red")
 
     monkeypatch.setattr(idea_assistant, "chat_json", down)
-    next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
+    with caplog.at_level(logging.INFO, logger="cic"):
+        next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
     assert not app.exception, app.exception
     assert any("No pudimos consultar al modelo" in i.value for i in app.info)
+    assert "áreas cercanas: falla del chat" in caplog.messages
     monkeypatch.setattr(idea_assistant, "chat_json", working)
     next(b for b in app.button if b.label == "Reintentar").click().run()
     assert [b.label for b in app.button if str(b.key).startswith("neighbor-")]
@@ -1052,7 +1106,10 @@ def test_profile_from_the_finder_explains_the_fit(
 
 @pytest.mark.usefixtures("tables")
 def test_a_failed_summary_can_be_retried(
-    semantic_finder: list[str], summary_chat: list[str], monkeypatch: pytest.MonkeyPatch
+    semantic_finder: list[str],
+    summary_chat: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     import streamlit as st
 
@@ -1067,8 +1124,10 @@ def test_a_failed_summary_can_be_retried(
         raise ChatError("sin red")
 
     monkeypatch.setattr(idea_assistant, "chat_json", down)
-    open_first_profile(app)
+    with caplog.at_level(logging.INFO, logger="cic"):
+        open_first_profile(app)
     assert any("No pudimos consultar al modelo" in c.value for c in app.caption)
+    assert "resumen con IA: falla del chat" in caplog.messages
     monkeypatch.setattr(idea_assistant, "chat_json", working)
     next(b for b in app.button if b.label == "Reintentar el resumen").click().run()
     assert not app.exception, app.exception

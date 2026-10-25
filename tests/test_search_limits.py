@@ -1,5 +1,6 @@
 """Los topes de búsquedas semánticas acotan lo que se puede gastar en la llave."""
 
+import logging
 import threading
 
 import pytest
@@ -39,6 +40,15 @@ def test_the_whole_site_has_hourly_and_daily_limits() -> None:
     assert searches.allow("otra") == "día"
     clock.now += DAY
     assert searches.allow("otra") is None
+
+
+def test_each_limit_reached_is_logged_without_the_ip(caplog: pytest.LogCaptureFixture) -> None:
+    searches = limiter(Clock(), per_client_per_hour=1)
+    with caplog.at_level(logging.INFO, logger="cic.topes"):
+        searches.allow("203.0.113.7")
+        searches.allow("203.0.113.7")
+    assert caplog.messages == ["tope alcanzado: visitante"]
+    assert "203.0.113.7" not in caplog.text
 
 
 def test_a_refused_search_is_not_counted() -> None:

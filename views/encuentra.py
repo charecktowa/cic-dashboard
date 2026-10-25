@@ -1,7 +1,9 @@
 """Búsqueda de laboratorios y asesores a partir de una idea de tesis."""
 
+import logging
 import re
 import threading
+import time
 from dataclasses import dataclass
 from functools import partial
 
@@ -71,6 +73,8 @@ def cached_title_rerank(query: str, titles: tuple[str, ...]) -> list[tuple[int, 
 
 
 INDEX_PATH = DATA / "title_embeddings.parquet"
+# Una línea por búsqueda y por ayuda con IA, sin la idea: cuántas hay y cómo se resolvieron.
+log = logging.getLogger("cic.encuentra")
 
 
 def index_version() -> int | None:
@@ -118,7 +122,8 @@ def search_limiter() -> SearchLimiter:
 
 UNAVAILABLE = "No pudimos consultar al modelo esta vez"
 LIMIT_MESSAGES = {
-    "visitante": "Hiciste muchas búsquedas en la última hora",
+    # El tope es por IP: puede alcanzarlo un salón entero, no solo quien lo ve.
+    "visitante": "Hubo muchas búsquedas desde tu red en la última hora",
     "hora": "El tablero alcanzó su límite de búsquedas por hora",
     "día": "El tablero alcanzó su límite de búsquedas del día",
 }
@@ -163,6 +168,8 @@ class Results:
     notices: list[tuple[str, str, str]]
     # Las palabras de la idea que ningún título menciona, como las escribió el visitante.
     uncovered: tuple[str, ...] = ()
+    # Cómo se resolvió, para el log ("semántica", "por términos: tope por hora"…).
+    mode: str = "semántica"
 
 
 def as_written(query: str, term: str) -> str:
@@ -179,10 +186,27 @@ def recognized_terms(query: str) -> list[str]:
     return [term for term in text.terms(query) if term in known]
 
 
-def term_results(query: str, notices: list[tuple[str, str, str]]) -> Results:
-    """La búsqueda local por términos: no llama a ningún servicio."""
+def term_results(query: str, notices: list[tuple[str, str, str]], reason: str) -> Results:
+    """La búsqueda local por términos: no llama a ningún servicio. `reason` va al log."""
     recognized, labs, people = match(query)
-    return Results(query, recognized, labs, people, {}, False, notices)
+    return Results(
+        query, recognized, labs, people, {}, False, notices, mode=f"por términos: {reason}"
+    )
+
+
+def search(query: str) -> Results:
+    """run_search() más una línea en el log: cómo se resolvió y cuánto tardó, sin la idea.
+
+    Si algo inesperado falla, la línea dice "falló" y Streamlit registra la traza aparte.
+    """
+    started = time.perf_counter()
+    mode = "falló"
+    try:
+        results = run_search(query)
+        mode = results.mode
+        return results
+    finally:
+        log.info("búsqueda %s en %.1f s", mode, time.perf_counter() - started)
 
 
 def run_search(query: str) -> Results:
@@ -190,19 +214,20 @@ def run_search(query: str) -> Results:
     version = index_version()
     if version is None:
         info = "Aún no se generó el índice semántico; usamos la búsqueda por términos."
-        return term_results(query, [("info", info, ":material/info:")])
+        return term_results(query, [("info", info, ":material/info:")], "sin índice")
     if not is_configured():
         info = "DashScope no está configurado en el servidor; usamos la búsqueda por términos."
-        return term_results(query, [("info", info, ":material/info:")])
+        return term_results(query, [("info", info, ":material/info:")], "sin llave")
     limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
     if limit:
         info = (
             f"{LIMIT_MESSAGES[limit]}; mostramos la búsqueda por términos, que no tiene "
             "límite. Vuelve a intentar más tarde."
         )
-        return term_results(query, [("info", info, ":material/hourglass_top:")])
+        return term_results(query, [("info", info, ":material/hourglass_top:")], f"tope ({limit})")
 
     notices: list[tuple[str, str, str]] = []
+    mode = "semántica"
     try:
         with st.spinner("Buscando títulos relacionados…"), search_slots():
             index = title_index(version)
@@ -213,7 +238,9 @@ def run_search(query: str) -> Results:
                     "El índice semántico es de otra instantánea de datos; usamos la búsqueda "
                     "por términos hasta reconstruirlo."
                 )
-                return term_results(query, [("info", info, ":material/update:")])
+                return term_results(
+                    query, [("info", info, ":material/update:")], "índice de otra instantánea"
+                )
             variants = cached_variants(query, version)
             ranked = cached_ranking(query, version)
             candidate_titles = tuple(ranked.head(MAX_RERANK_DOCUMENTS)["title"].to_list())
@@ -224,6 +251,7 @@ def run_search(query: str) -> Results:
                     "No se pudo ordenar los títulos con el reranker; usamos el ranking híbrido."
                 )
                 notices.append(("warning", warning, ":material/cloud_off:"))
+                mode = "semántica sin reranker"
             labs = recommend(index, ranked, group_by="lab")
             people = recommend(index, ranked, group_by="person")
     except (EmbeddingError, ValueError):
@@ -231,7 +259,9 @@ def run_search(query: str) -> Results:
             "No se pudo completar la búsqueda semántica. Mostramos los resultados por "
             "coincidencia de términos."
         )
-        return term_results(query, [("warning", warning, ":material/cloud_off:")])
+        return term_results(
+            query, [("warning", warning, ":material/cloud_off:")], "falla de DashScope"
+        )
     uncovered = tuple(
         as_written(query, term) for term in uncovered_words(query, index.corpus, variants)
     )
@@ -242,7 +272,9 @@ def run_search(query: str) -> Results:
             "resto de tu idea y en temas parecidos: tómalas como un punto de partida."
         )
         notices.append(("info", info, ":material/search_off:"))
-    return Results(query, recognized_terms(query), labs, people, variants, True, notices, uncovered)
+    return Results(
+        query, recognized_terms(query), labs, people, variants, True, notices, uncovered, mode
+    )
 
 
 @st.cache_data(ttl=3600, max_entries=128, show_spinner=False)
@@ -264,6 +296,7 @@ def suggest_neighbors(results: Results) -> None:
     limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
     if limit or version is None:
         message = f"{LIMIT_MESSAGES[limit]}; intenta más tarde" if limit else UNAVAILABLE
+        log.info("áreas cercanas: %s", f"tope ({limit})" if limit else "sin índice")
         st.session_state["neighbors_failure"] = (asked, message)
         return
     try:
@@ -271,8 +304,10 @@ def suggest_neighbors(results: Results) -> None:
         # del semáforo: el chat solo espera la red, y no debe hacer esperar a las búsquedas.
         found = cached_neighbors(results.query, results.uncovered, version)
     except ChatError:
+        log.info("áreas cercanas: falla del chat")
         st.session_state["neighbors_failure"] = (asked, UNAVAILABLE)
         return
+    log.info("áreas cercanas: %d sugerencias", len(found))
     st.session_state["neighbors"] = (asked, found)
 
 
@@ -302,6 +337,7 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
     if key not in stored:
         limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
         if limit:
+            log.info("resumen con IA: tope (%s)", limit)
             stored[key] = Failure(f"{LIMIT_MESSAGES[limit]}; intenta más tarde")
         else:
             try:
@@ -309,7 +345,9 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
                 # tiempo límite) y no debe hacer esperar a las búsquedas semánticas.
                 with st.spinner("Resumiendo por qué encaja con tu idea…"):
                     stored[key] = cached_summary(query, person, works)
+                log.info("resumen con IA: %s", "listo" if stored[key] else "sin resumen confiable")
             except ChatError:
+                log.info("resumen con IA: falla del chat")
                 stored[key] = Failure(UNAVAILABLE)
     summary = stored[key]
     with st.container(border=True):
@@ -383,9 +421,9 @@ if submitted:
         st.info("Escribe tu idea o elige un ejemplo antes de buscar.", icon=":material/edit:")
         footer()
         st.stop()
-    st.session_state["results"] = run_search(idea.strip())
+    st.session_state["results"] = search(idea.strip())
 elif pending := st.session_state.pop("pending_search", None):
-    st.session_state["results"] = run_search(pending)
+    st.session_state["results"] = search(pending)
 
 results: Results | None = st.session_state.get("results")
 if results is None:

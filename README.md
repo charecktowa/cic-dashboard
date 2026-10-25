@@ -99,9 +99,10 @@ Si falta la llave o el índice, o si falla el servicio, «Encuentra tu lab» usa
 por términos. No se deben introducir datos personales o confidenciales en la idea.
 
 Cada búsqueda semántica se cobra a la llave: unos $0.0007 con una idea corta y hasta $0.0017
-con una de 500 caracteres, casi todo del reranker. `search_limits.py` pone tres topes: 20
-búsquedas por hora por visitante (la IP que reporta Cloudflare), 300 por hora y 2,000 por día
-en todo el sitio. Con ellos el gasto máximo ronda $3.40 al día; pasado un tope, la página usa
+con una de 500 caracteres, casi todo del reranker. `search_limits.py` pone tres topes: 60
+búsquedas por hora por visitante (la IP que reporta Cloudflare, que un salón o el campus
+pueden compartir), 600 por hora y 3,000 por día en todo el sitio; abrir un perfil o pedir
+áreas cercanas cuenta como una búsqueda. Con ellos el gasto máximo ronda $5.10 al día; pasado un tope, la página usa
 la búsqueda por términos. Los contadores viven en memoria: bastan porque la app corre en un
 solo proceso, y se reinician con el contenedor. Configura además una alerta de gasto en la
 consola de Alibaba Cloud.
@@ -113,6 +114,16 @@ el catálogo, y resumir por qué una persona encaja al abrir su perfil desde «E
 Cada una cuesta unos $0.0001, cuenta en los mismos topes y se verifica contra el catálogo
 (`idea_assistant.py`): una sugerencia necesita un par de palabras con títulos, y el resumen
 solo puede citar, por número, las obras que recibió.
+
+Cada búsqueda, cada ayuda con IA y cada tope alcanzado deja una línea en el log, sin la idea
+ni la IP del visitante; las fallas de DashScope dejan su código. Para ver cómo va el día:
+
+```bash
+docker logs --since 24h cic-dashboard 2>&1 | grep " cic\."
+```
+
+Si aparece seguido `tope alcanzado: hora` o `día`, los topes se quedan cortos. `compose.yaml`
+rota los logs: 3 archivos de 10 MB como máximo.
 
 ## 1b. Métricas y publicaciones de OpenAlex (opcional)
 

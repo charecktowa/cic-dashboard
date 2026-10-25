@@ -225,7 +225,7 @@ def test_post_reports_failures_without_the_key(
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     with (
-        caplog.at_level(logging.WARNING, logger="dashscope_client"),
+        caplog.at_level(logging.WARNING, logger="cic.dashscope"),
         pytest.raises(dashscope_client.ApiError) as error,
     ):
         dashscope_client.post("services/x", {"input": {"texts": ["idea privada"]}}, KEY)
@@ -342,7 +342,7 @@ def test_chat_json_rejects_anything_but_a_json_object(
     api.reply = reply
     with (
         pytest.raises(dashscope_client.ChatError),
-        caplog.at_level(logging.WARNING, logger="dashscope_client"),
+        caplog.at_level(logging.WARNING, logger="cic.dashscope"),
     ):
         dashscope_client.chat_json("Responde en JSON.", "Idea")
     # Cada rechazo queda en el log: un modelo que responde mal no falla en silencio.
