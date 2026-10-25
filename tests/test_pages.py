@@ -793,6 +793,29 @@ def test_each_search_leaves_one_log_line_without_the_idea(
 
 
 @pytest.mark.usefixtures("tables")
+def test_a_search_that_breaks_still_leaves_its_line(
+    semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import streamlit as st
+
+    import semantic_search
+
+    def broken(*args: object) -> None:
+        raise OSError("no se pudo leer el índice")
+
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    # Un índice que no se puede preparar: un error que run_search() no espera.
+    monkeypatch.setattr(semantic_search, "prepare_index", broken)
+    with caplog.at_level(logging.INFO, logger="cic"):
+        app = search_finder(open_page("encuentra"), "visión por computadora")
+    assert app.exception
+    assert [m.split(" en ")[0] for m in caplog.messages if m.startswith("búsqueda")] == [
+        "búsqueda falló"
+    ]
+
+
+@pytest.mark.usefixtures("tables")
 def test_finder_falls_back_to_terms_past_the_limit(
     semantic_finder: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

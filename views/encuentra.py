@@ -195,11 +195,18 @@ def term_results(query: str, notices: list[tuple[str, str, str]], reason: str) -
 
 
 def search(query: str) -> Results:
-    """run_search() más una línea en el log: cómo se resolvió y cuánto tardó, sin la idea."""
+    """run_search() más una línea en el log: cómo se resolvió y cuánto tardó, sin la idea.
+
+    Si algo inesperado falla, la línea dice "falló" y Streamlit registra la traza aparte.
+    """
     started = time.perf_counter()
-    results = run_search(query)
-    log.info("búsqueda %s en %.1f s", results.mode, time.perf_counter() - started)
-    return results
+    mode = "falló"
+    try:
+        results = run_search(query)
+        mode = results.mode
+        return results
+    finally:
+        log.info("búsqueda %s en %.1f s", mode, time.perf_counter() - started)
 
 
 def run_search(query: str) -> Results:
