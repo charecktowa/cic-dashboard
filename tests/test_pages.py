@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import math
+import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -785,11 +786,13 @@ def test_each_search_leaves_one_log_line_without_the_idea(
         monkeypatch.setattr(SearchLimiter, "allow", lambda self, client: "hora")
         search_finder(open_page("encuentra"), idea)
     lines = [r.getMessage() for r in caplog.records if r.name == "cic.encuentra"]
-    assert [line.split(" en ")[0] for line in lines] == [
-        "búsqueda semántica",
-        "búsqueda por términos: tope (hora)",
-    ]
-    assert "visión" not in caplog.text and "neuronales" not in caplog.text
+    # La línea completa, con su duración: nada más se cuela al final.
+    assert len(lines) == 2
+    assert re.fullmatch(r"búsqueda semántica en \d+\.\d s", lines[0])
+    assert re.fullmatch(r"búsqueda por términos: tope \(hora\) en \d+\.\d s", lines[1])
+    # Ninguna palabra de la idea llega al log, ni siquiera un fragmento.
+    for word in ("visión", "computadora", "redes", "neuronales"):
+        assert word not in caplog.text
 
 
 @pytest.mark.usefixtures("tables")
