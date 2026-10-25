@@ -1044,7 +1044,8 @@ def test_profile_from_the_finder_explains_the_fit(
     cited = next(text for text in shown if text.startswith("[1] ") and "\n" in text)
     assert all(line in prompt for line in cited.splitlines())
     assert any("generado por IA" in c.value for c in app.caption)
-    # Volver a abrirlo no llama otra vez al chat.
+    # Volver a abrirlo no llama otra vez al chat: lo evita la sesión, no el caché.
+    st.cache_data.clear()
     open_first_profile(app)
     assert len(summary_chat) == 1
 
