@@ -1050,7 +1050,7 @@ def test_a_failed_neighbor_request_can_be_retried(
     with caplog.at_level(logging.INFO, logger="cic"):
         next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
     assert not app.exception, app.exception
-    assert any("No pudimos consultar al modelo" in i.value for i in app.info)
+    assert any("El modelo no respondió" in i.value for i in app.info)
     assert "áreas cercanas: falla del chat" in caplog.messages
     monkeypatch.setattr(idea_assistant, "chat_json", working)
     next(b for b in app.button if b.label == "Reintentar").click().run()
@@ -1133,7 +1133,7 @@ def test_a_failed_summary_can_be_retried(
     monkeypatch.setattr(idea_assistant, "chat_json", down)
     with caplog.at_level(logging.INFO, logger="cic"):
         open_first_profile(app)
-    assert any("No pudimos consultar al modelo" in c.value for c in app.caption)
+    assert any("El modelo no respondió" in c.value for c in app.caption)
     assert "resumen con IA: falla del chat" in caplog.messages
     monkeypatch.setattr(idea_assistant, "chat_json", working)
     next(b for b in app.button if b.label == "Reintentar el resumen").click().run()

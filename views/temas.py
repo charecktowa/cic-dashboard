@@ -37,8 +37,8 @@ def use_suggestion() -> None:
 st.title("Temas")
 st.markdown(
     "Todos los títulos del CIC (tesis, artículos, congresos y proyectos) partidos en palabras "
-    "y pares de palabras. Con eso basta para seguir un tema en el tiempo, sin ningún modelo "
-    "de inteligencia artificial."
+    "y pares de palabras. Así se sigue cada tema con los años, sin modelos de inteligencia "
+    "artificial."
 )
 
 # --- Follow a term ----------------------------------------------------------
@@ -118,7 +118,7 @@ Las tesis no tienen año en el catálogo, así que solo aparecen en la gráfica 
 
 # --- Rising and fading ------------------------------------------------------
 
-st.subheader("¿Qué crece y qué se apaga?")
+st.subheader("¿Qué temas crecen y cuáles van a la baja?")
 st.markdown(
     "Compara qué tanto aparece cada término en los títulos recientes contra la ventana "
     "anterior del mismo tamaño. Copia un término en el buscador de arriba para ver su curva."

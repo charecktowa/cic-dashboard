@@ -11,7 +11,7 @@ asesor. Hecho con Streamlit y Plotly.
 | Laboratorios | Ranking, perfil de cada laboratorio, comparación en radar y mapa de temas. |
 | Asesores | Panorama de todas las personas: quién participa en más tesis y con qué rol, y "publicar vs. dirigir". |
 | Perfil de asesor | Buscador y perfil de una persona: tesis, producción por año, temas, colaboración y OpenAlex. Se comparte con `?persona=`. |
-| Temas | Seguir términos en el tiempo, temas que crecen o se apagan, español vs. inglés. |
+| Temas | Seguir términos en el tiempo, temas que crecen o van a la baja, español vs. inglés. |
 | Colaboración | Mapa de calor entre laboratorios, flujo de codirección y duplas frecuentes. |
 | Producción | Productos por año, crecimiento animado por laboratorio, proyectos y revistas. |
 | Acerca de | Fuente, qué no se publica, cómo leer las cifras y limitaciones. |

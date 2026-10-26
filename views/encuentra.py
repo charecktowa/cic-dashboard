@@ -120,7 +120,7 @@ def search_limiter() -> SearchLimiter:
     return SearchLimiter()
 
 
-UNAVAILABLE = "No pudimos consultar al modelo esta vez"
+UNAVAILABLE = "El modelo no respondió esta vez"
 LIMIT_MESSAGES = {
     # El tope es por IP: puede alcanzarlo un salón entero, no solo quien lo ve.
     "visitante": "Hubo muchas búsquedas desde tu red en la última hora",
@@ -213,15 +213,15 @@ def run_search(query: str) -> Results:
     """Busca una idea enviada. Es la única ruta que puede llamar a DashScope."""
     version = index_version()
     if version is None:
-        info = "Aún no se generó el índice semántico; usamos la búsqueda por términos."
+        info = "Aún no se generó el índice semántico; se usa la búsqueda por términos."
         return term_results(query, [("info", info, ":material/info:")], "sin índice")
     if not is_configured():
-        info = "DashScope no está configurado en el servidor; usamos la búsqueda por términos."
+        info = "DashScope no está configurado en el servidor; se usa la búsqueda por términos."
         return term_results(query, [("info", info, ":material/info:")], "sin llave")
     limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
     if limit:
         info = (
-            f"{LIMIT_MESSAGES[limit]}; mostramos la búsqueda por términos, que no tiene "
+            f"{LIMIT_MESSAGES[limit]}; se muestra la búsqueda por términos, que no tiene "
             "límite. Vuelve a intentar más tarde."
         )
         return term_results(query, [("info", info, ":material/hourglass_top:")], f"tope ({limit})")
@@ -235,7 +235,7 @@ def run_search(query: str) -> Results:
                 # Vínculos de otra instantánea: pueden nombrar títulos o personas que ya no
                 # están. Hasta reconstruirlo, la búsqueda por términos.
                 info = (
-                    "El índice semántico es de otra instantánea de datos; usamos la búsqueda "
+                    "El índice semántico es de otra instantánea de datos; se usa la búsqueda "
                     "por términos hasta reconstruirlo."
                 )
                 return term_results(
@@ -248,7 +248,7 @@ def run_search(query: str) -> Results:
                 ranked = apply_rerank(ranked, cached_title_rerank(query, candidate_titles))
             except RerankError:
                 warning = (
-                    "No se pudo ordenar los títulos con el reranker; usamos el ranking híbrido."
+                    "No se pudo ordenar los títulos con el reranker; se usa el ranking híbrido."
                 )
                 notices.append(("warning", warning, ":material/cloud_off:"))
                 mode = "semántica sin reranker"
@@ -256,7 +256,7 @@ def run_search(query: str) -> Results:
             people = recommend(index, ranked, group_by="person")
     except (EmbeddingError, ValueError):
         warning = (
-            "No se pudo completar la búsqueda semántica. Mostramos los resultados por "
+            "No se pudo completar la búsqueda semántica. Se muestran los resultados por "
             "coincidencia de términos."
         )
         return term_results(
@@ -387,7 +387,7 @@ def show_fit(query: str, person: str, works: tuple[str, ...]) -> None:
         )
     else:
         # El modelo respondió, pero sin un resumen que cite sus obras: no se reintenta.
-        st.caption("No pudimos generar un resumen confiable para esta persona.")
+        st.caption("No se pudo generar un resumen confiable para esta persona.")
 
 
 def search_neighbor(query: str) -> None:
@@ -476,8 +476,8 @@ if results.semantic and results.uncovered:
         )
     elif not neighbors:
         st.info(
-            "No encontramos un área cercana con trabajos en el catálogo. Prueba con otras "
-            "palabras de tu idea.",
+            "No hay un área cercana con trabajos en el catálogo. Prueba con otras palabras de "
+            "tu idea.",
             icon=":material/search_off:",
         )
     else:
@@ -526,7 +526,7 @@ with left:
     st.subheader("Laboratorios afines")
     top_labs = labs.head(5).sort("affinity")
     if top_labs.is_empty():
-        st.info("No encontramos laboratorios con títulos relacionados.")
+        st.info("No hay laboratorios con títulos relacionados.")
     else:
         fig = px.bar(
             top_labs,
@@ -546,7 +546,7 @@ with right:
     st.subheader("Personas afines")
     top_people = people.head(5).sort("affinity")
     if top_people.is_empty():
-        st.info("No encontramos asesores con títulos relacionados.")
+        st.info("No hay asesores con títulos relacionados.")
     else:
         fig = px.bar(
             top_people,
