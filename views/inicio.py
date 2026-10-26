@@ -81,6 +81,12 @@ recent_lang = load("language").filter(
 )
 english = ratio(recent_lang["english"].sum(), recent_lang["titles"].sum())
 doctorate = ratio(labs["doctorate"].sum(), labs["theses"].sum())
+top_work = load("openalex_works").sort("cited_by_count", descending=True).row(0, named=True)
+# Cada dupla aparece dos veces (A con B y B con A): basta una.
+pairs_people = load("person_pairs").filter(pl.col("person") < pl.col("other"))
+top_duo = pairs_people.sort("theses", descending=True).row(0, named=True)
+# `rising` va del cambio más negativo al más positivo: el primero es el que más cayó.
+top_falling = rising.row(0, named=True)["term"]
 
 facts = [
     (
@@ -113,6 +119,21 @@ facts = [
         ":material/workspace_premium:",
         f"Una de cada {round(1 / doctorate) if doctorate else '—'} tesis con laboratorio "
         f"asignado es de doctorado (**{doctorate:.0%}**).",
+    ),
+    (
+        ":material/format_quote:",
+        f"El trabajo más citado de alguien del CIC es «{top_work['title']}» "
+        f"({top_work['year']}), de **{top_work['person']}**: "
+        f"**{top_work['cited_by_count']:,}** citas en OpenAlex.",
+    ),
+    (
+        ":material/group:",
+        f"**{top_duo['person']}** y **{top_duo['other']}** coinciden en "
+        f"**{top_duo['theses']:,}** tesis: ninguna otra dupla del CIC se repite tanto.",
+    ),
+    (
+        ":material/trending_down:",
+        f"El tema que más cayó en los títulos de los últimos 4 años es **{top_falling}**.",
     ),
 ]
 for row in range(0, len(facts), 3):
