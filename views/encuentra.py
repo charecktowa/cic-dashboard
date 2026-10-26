@@ -422,8 +422,9 @@ with st.form("finder"):
     # El aviso va antes del botón: nada sale del servidor sin que el visitante lo haya leído.
     if index_version() is not None and is_configured():
         st.caption(
-            "Tu idea se envía a Alibaba Cloud para buscar y, si lo pides, resumir con IA. No se "
-            "guarda ni se usa para entrenar modelos. Evita datos personales o confidenciales."
+            "Tu idea pasa por un modelo de lenguaje (Qwen, en Alibaba Cloud) para buscar y, si "
+            "lo pides, resumir con IA. No se guarda ni se usa para entrenar modelos. Evita datos "
+            "personales o confidenciales."
         )
     submitted = st.form_submit_button("Buscar afinidades", type="primary", icon=":material/search:")
 
