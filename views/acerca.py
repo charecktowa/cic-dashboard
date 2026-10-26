@@ -16,7 +16,8 @@ proyectos y {totals["Artículos y congresos"]:,} artículos y congresos.
 
 Las métricas de citas y los trabajos más citados de cada persona vienen de
 [OpenAlex](https://openalex.org), cuyos datos son de dominio público (CC0). El vínculo entre
-cada persona del CIC y su perfil de OpenAlex se revisó a mano; si ves uno equivocado, avísanos.
+cada persona del CIC y su perfil de OpenAlex se revisó a mano; un vínculo equivocado se
+puede reportar como dice *Contacto y correcciones*.
 
 El sitio del CIC permite reproducir su contenido con fines no lucrativos, sin mutilarlo y citando la
 fuente completa. Este tablero no reproduce las páginas: calcula conteos a partir de ellas,
@@ -52,8 +53,8 @@ cita su origen en cada página y no tiene fines de lucro.
 
 ### ¿Para qué sirve?
 
-Para orientarte: descubrir qué se investiga en el CIC, en qué laboratorios y con quién, antes
-de acercarte a un posible asesor. **No sustituye una conversación** con las personas ni la
+Para orientarse: ver qué se investiga en el CIC, en qué laboratorios y con quién, antes de
+acercarse a un posible asesor. **No sustituye una conversación** con las personas ni la
 información oficial del posgrado.
 
 ### Contacto y correcciones

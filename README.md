@@ -11,7 +11,7 @@ asesor. Hecho con Streamlit y Plotly.
 | Laboratorios | Ranking, perfil de cada laboratorio, comparación en radar y mapa de temas. |
 | Asesores | Panorama de todas las personas: quién participa en más tesis y con qué rol, y "publicar vs. dirigir". |
 | Perfil de asesor | Buscador y perfil de una persona: tesis, producción por año, temas, colaboración y OpenAlex. Se comparte con `?persona=`. |
-| Temas | Seguir términos en el tiempo, temas que crecen o se apagan, español vs. inglés. |
+| Temas | Seguir términos en el tiempo, temas que crecen o van a la baja, español vs. inglés. |
 | Colaboración | Mapa de calor entre laboratorios, flujo de codirección y duplas frecuentes. |
 | Producción | Productos por año, crecimiento animado por laboratorio, proyectos y revistas. |
 | Acerca de | Fuente, qué no se publica, cómo leer las cifras y limitaciones. |
@@ -101,16 +101,17 @@ por términos. No se deben introducir datos personales o confidenciales en la id
 Cada búsqueda semántica se cobra a la llave: unos $0.0007 con una idea corta y hasta $0.0017
 con una de 500 caracteres, casi todo del reranker. `search_limits.py` pone tres topes: 60
 búsquedas por hora por visitante (la IP que reporta Cloudflare, que un salón o el campus
-pueden compartir), 600 por hora y 3,000 por día en todo el sitio; abrir un perfil o pedir
-áreas cercanas cuenta como una búsqueda. Con ellos el gasto máximo ronda $5.10 al día; pasado un tope, la página usa
-la búsqueda por términos. Los contadores viven en memoria: bastan porque la app corre en un
+pueden compartir), 600 por hora y 3,000 por día en todo el sitio; abrir el resumen con IA de
+un perfil o pedir áreas cercanas cuenta como una búsqueda. Con ellos el gasto máximo ronda
+$5.10 al día; pasado un tope, la página usa la búsqueda por términos. Los contadores viven en memoria: bastan porque la app corre en un
 solo proceso, y se reinician con el contenedor. Configura además una alerta de gasto en la
 consola de Alibaba Cloud.
 
 Dos ayudas usan además Qwen3.7 Flash (~$0.03 por millón de tokens de entrada y $0.13 de
 salida), por la ruta compatible con OpenAI del mismo servidor y con la misma llave, y solo
 cuando el visitante las pide: sugerir áreas cercanas cuando una palabra no tiene trabajos en
-el catálogo, y resumir por qué una persona encaja al abrir su perfil desde «Encuentra tu lab».
+el catálogo, y resumir por qué una persona encaja al abrir el desplegable de su perfil desde
+«Encuentra tu lab».
 Cada una cuesta unos $0.0001, cuenta en los mismos topes y se verifica contra el catálogo
 (`idea_assistant.py`): una sugerencia necesita un par de palabras con títulos, y el resumen
 solo puede citar, por número, las obras que recibió.

@@ -5,10 +5,10 @@ from common import CURRENT_YEAR, every_year, footer, load, ratio, rising_terms
 
 st.title("El CIC en datos")
 st.markdown(
-    "Un mapa interactivo de la investigación del **Centro de Investigación en Computación "
-    "(CIC) del IPN**: qué se investiga, en qué laboratorios, con quién y cómo ha cambiado con "
-    "los años. Está pensado para estudiantes que buscan **tema de tesis, laboratorio o "
-    "asesor**, y para cualquiera con curiosidad por la computación que se hace en el CIC."
+    "La investigación del **Centro de Investigación en Computación (CIC) del IPN** en datos: "
+    "qué se investiga, en qué laboratorios, con quién y cómo ha cambiado con los años. Para "
+    "estudiantes que buscan **tema de tesis, laboratorio o asesor**, y para quien tenga "
+    "curiosidad por la computación que se hace en el CIC."
 )
 
 outputs = load("outputs_by_year").filter(pl.col("lab").is_null())
@@ -33,14 +33,13 @@ with st.container(horizontal=True, gap="small"):
             else None,
         )
 
-st.subheader("¿Por dónde empiezo?")
+st.subheader("¿Por dónde empezar?")
 cards = [
     (
         "views/encuentra.py",
         ":material/explore:",
         "Encuentra tu lab",
-        "Escribe tu idea de tesis y descubre qué laboratorios y asesores trabajan en temas "
-        "parecidos.",
+        "A partir de una idea de tesis, qué laboratorios y asesores trabajan temas parecidos.",
     ),
     (
         "views/laboratorios.py",
@@ -58,7 +57,7 @@ cards = [
         "views/temas.py",
         ":material/trending_up:",
         "Temas",
-        "Sigue un tema en el tiempo y mira qué está creciendo y qué se está apagando.",
+        "Cómo cambia cada tema con los años: qué temas crecen y cuáles van a la baja.",
     ),
 ]
 for column, (page, icon, title, blurb) in zip(st.columns(4), cards, strict=True):
@@ -82,6 +81,12 @@ recent_lang = load("language").filter(
 )
 english = ratio(recent_lang["english"].sum(), recent_lang["titles"].sum())
 doctorate = ratio(labs["doctorate"].sum(), labs["theses"].sum())
+top_work = load("openalex_works").sort("cited_by_count", descending=True).row(0, named=True)
+# Cada dupla aparece dos veces (A con B y B con A): basta una.
+pairs_people = load("person_pairs").filter(pl.col("person") < pl.col("other"))
+top_duo = pairs_people.sort("theses", descending=True).row(0, named=True)
+# `rising` va del cambio más negativo al más positivo: el primero es el que más cayó.
+top_falling = rising.row(0, named=True)["term"]
 
 facts = [
     (
@@ -114,6 +119,21 @@ facts = [
         ":material/workspace_premium:",
         f"Una de cada {round(1 / doctorate) if doctorate else '—'} tesis con laboratorio "
         f"asignado es de doctorado (**{doctorate:.0%}**).",
+    ),
+    (
+        ":material/format_quote:",
+        f"El trabajo más citado de alguien del CIC es «{top_work['title']}» "
+        f"({top_work['year']}), de **{top_work['person']}**: "
+        f"**{top_work['cited_by_count']:,}** citas en OpenAlex.",
+    ),
+    (
+        ":material/group:",
+        f"**{top_duo['person']}** y **{top_duo['other']}** coinciden en "
+        f"**{top_duo['theses']:,}** tesis: ninguna otra dupla del CIC se repite tanto.",
+    ),
+    (
+        ":material/trending_down:",
+        f"El tema que más cayó en los títulos de los últimos 4 años es **{top_falling}**.",
     ),
 ]
 for row in range(0, len(facts), 3):

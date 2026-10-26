@@ -579,7 +579,8 @@ def render_openalex(person: str) -> None:
     st.caption(
         f"Fuente: [OpenAlex]({OPENALEX_URL}), datos de dominio público (CC0). OpenAlex cuenta "
         "todo lo que tiene indexado, no solo lo registrado en el sitio del CIC, así que sus "
-        "cifras pueden diferir de las demás pestañas. Si un perfil está mal vinculado, avísanos."
+        "cifras pueden diferir de las demás pestañas. Un perfil mal vinculado se puede reportar "
+        "como dice **Acerca de**."
     )
 
 

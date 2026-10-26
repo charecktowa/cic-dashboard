@@ -866,7 +866,7 @@ def test_count_label_agrees_with_the_number(n: int, label: str) -> None:
 @pytest.mark.usefixtures("tables")
 def test_finder_warns_about_the_provider_before_any_search(semantic_finder: list[str]) -> None:
     app = open_page("encuentra")
-    assert any("se envían a Alibaba Cloud" in c.value for c in app.caption)
+    assert any("(Qwen, en Alibaba Cloud)" in c.value for c in app.caption)
     # Abrir la página no manda nada.
     assert semantic_finder == []
 
@@ -1050,7 +1050,7 @@ def test_a_failed_neighbor_request_can_be_retried(
     with caplog.at_level(logging.INFO, logger="cic"):
         next(b for b in app.button if "Sugerir áreas cercanas" in b.label).click().run()
     assert not app.exception, app.exception
-    assert any("No pudimos consultar al modelo" in i.value for i in app.info)
+    assert any("El modelo no respondió" in i.value for i in app.info)
     assert "áreas cercanas: falla del chat" in caplog.messages
     monkeypatch.setattr(idea_assistant, "chat_json", working)
     next(b for b in app.button if b.label == "Reintentar").click().run()
@@ -1072,8 +1072,15 @@ def summary_chat(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return asked
 
 
-def open_first_profile(app: AppTest) -> AppTest:
-    next(b for b in app.button if str(b.key).startswith("open-")).click().run()
+def open_first_profile(app: AppTest, *, fit: bool = True) -> AppTest:
+    """Abre el primer perfil; con `fit`, también el desplegable del resumen con IA.
+
+    AppTest no sabe abrir un desplegable: se marca abierto en la sesión, por su clave.
+    """
+    opener = next(b for b in app.button if str(b.key).startswith("open-"))
+    if fit:
+        app.session_state[f"fit-{str(opener.key).removeprefix('open-')}"] = True
+    opener.click().run()
     assert not app.exception, app.exception
     return app
 
@@ -1088,7 +1095,7 @@ def test_profile_from_the_finder_explains_the_fit(
     app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
     assert summary_chat == []
     open_first_profile(app)
-    assert any("Por qué podría encajar" in m.value for m in app.markdown)
+    assert any("Por qué podría encajar" in e.label for e in app.expander)
     shown = [t.value for t in app.text]
     assert "Trabaja temas cercanos a tu idea [1]." in shown
     # La obra seleccionada y la lista citada usan los mismos números que recibió el chat.
@@ -1126,7 +1133,7 @@ def test_a_failed_summary_can_be_retried(
     monkeypatch.setattr(idea_assistant, "chat_json", down)
     with caplog.at_level(logging.INFO, logger="cic"):
         open_first_profile(app)
-    assert any("No pudimos consultar al modelo" in c.value for c in app.caption)
+    assert any("El modelo no respondió" in c.value for c in app.caption)
     assert "resumen con IA: falla del chat" in caplog.messages
     monkeypatch.setattr(idea_assistant, "chat_json", working)
     next(b for b in app.button if b.label == "Reintentar el resumen").click().run()
@@ -1184,8 +1191,23 @@ def test_a_new_index_asks_the_ai_helpers_again(
 @pytest.mark.usefixtures("tables")
 def test_profile_from_the_term_search_has_no_ai_summary(summary_chat: list[str]) -> None:
     app = open_first_profile(search_finder(open_page("encuentra"), "deep learning"))
-    assert not any("Por qué podría encajar" in m.value for m in app.markdown)
+    assert not any("Por qué podría encajar" in e.label for e in app.expander)
     assert summary_chat == []
+
+
+@pytest.mark.usefixtures("tables")
+def test_the_fit_summary_waits_closed_until_asked(
+    semantic_finder: list[str], summary_chat: list[str]
+) -> None:
+    import streamlit as st
+
+    st.cache_data.clear()
+    app = search_finder(open_page("encuentra"), "robots móviles que aprenden a caminar")
+    open_first_profile(app, fit=False)
+    # El desplegable está, cerrado, y sin abrirlo no se llama al chat ni se gasta cupo.
+    assert any("Por qué podría encajar" in e.label for e in app.expander)
+    assert summary_chat == []
+    assert "Trabaja temas cercanos a tu idea [1]." not in [t.value for t in app.text]
 
 
 @pytest.mark.usefixtures("tables")

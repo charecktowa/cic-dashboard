@@ -120,7 +120,7 @@ def search_limiter() -> SearchLimiter:
     return SearchLimiter()
 
 
-UNAVAILABLE = "No pudimos consultar al modelo esta vez"
+UNAVAILABLE = "El modelo no respondió esta vez"
 LIMIT_MESSAGES = {
     # El tope es por IP: puede alcanzarlo un salón entero, no solo quien lo ve.
     "visitante": "Hubo muchas búsquedas desde tu red en la última hora",
@@ -213,15 +213,15 @@ def run_search(query: str) -> Results:
     """Busca una idea enviada. Es la única ruta que puede llamar a DashScope."""
     version = index_version()
     if version is None:
-        info = "Aún no se generó el índice semántico; usamos la búsqueda por términos."
+        info = "Aún no se generó el índice semántico; se usa la búsqueda por términos."
         return term_results(query, [("info", info, ":material/info:")], "sin índice")
     if not is_configured():
-        info = "DashScope no está configurado en el servidor; usamos la búsqueda por términos."
+        info = "DashScope no está configurado en el servidor; se usa la búsqueda por términos."
         return term_results(query, [("info", info, ":material/info:")], "sin llave")
     limit = search_limiter().allow(client_key(st.context.headers, st.context.ip_address))
     if limit:
         info = (
-            f"{LIMIT_MESSAGES[limit]}; mostramos la búsqueda por términos, que no tiene "
+            f"{LIMIT_MESSAGES[limit]}; se muestra la búsqueda por términos, que no tiene "
             "límite. Vuelve a intentar más tarde."
         )
         return term_results(query, [("info", info, ":material/hourglass_top:")], f"tope ({limit})")
@@ -235,7 +235,7 @@ def run_search(query: str) -> Results:
                 # Vínculos de otra instantánea: pueden nombrar títulos o personas que ya no
                 # están. Hasta reconstruirlo, la búsqueda por términos.
                 info = (
-                    "El índice semántico es de otra instantánea de datos; usamos la búsqueda "
+                    "El índice semántico es de otra instantánea de datos; se usa la búsqueda "
                     "por términos hasta reconstruirlo."
                 )
                 return term_results(
@@ -248,7 +248,7 @@ def run_search(query: str) -> Results:
                 ranked = apply_rerank(ranked, cached_title_rerank(query, candidate_titles))
             except RerankError:
                 warning = (
-                    "No se pudo ordenar los títulos con el reranker; usamos el ranking híbrido."
+                    "No se pudo ordenar los títulos con el reranker; se usa el ranking híbrido."
                 )
                 notices.append(("warning", warning, ":material/cloud_off:"))
                 mode = "semántica sin reranker"
@@ -256,7 +256,7 @@ def run_search(query: str) -> Results:
             people = recommend(index, ranked, group_by="person")
     except (EmbeddingError, ValueError):
         warning = (
-            "No se pudo completar la búsqueda semántica. Mostramos los resultados por "
+            "No se pudo completar la búsqueda semántica. Se muestran los resultados por "
             "coincidencia de términos."
         )
         return term_results(
@@ -323,12 +323,27 @@ def forget_summary(key: tuple[str, str, int | None]) -> None:
 
 
 def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
-    """Por qué esta persona encaja con la idea. Solo aparece al abrir su perfil desde aquí.
+    """Por qué esta persona encaja con la idea. Solo aparece en su perfil abierto desde aquí.
 
-    Se guarda en la sesión: interactuar dentro del diálogo no vuelve a llamar al chat ni a
-    contar en los topes. Un tope o una falla también se guardan, como Failure, pero con un
-    botón para reintentar.
+    Va en un desplegable cerrado: en un teléfono no tapa la ficha que sigue abajo, y el chat
+    solo se llama si el visitante lo abre. Se guarda en la sesión: interactuar dentro del
+    diálogo no vuelve a llamar al chat ni a contar en los topes. Un tope o una falla también
+    se guardan, como Failure, pero con un botón para reintentar.
     """
+    fit = st.expander(
+        "Por qué podría encajar con tu idea · resumen con IA",
+        icon=":material/auto_awesome:",
+        key=f"fit-{person}",
+        on_change="rerun",
+    )
+    if not fit.open:
+        return
+    with fit:
+        show_fit(query, person, works)
+
+
+def show_fit(query: str, person: str, works: tuple[str, ...]) -> None:
+    """El contenido del desplegable: pide el resumen una vez y lo muestra."""
     stored: dict[tuple[str, str, int | None], Summary | Failure | None] = (
         st.session_state.setdefault("summaries", {})
     )
@@ -350,31 +365,29 @@ def render_fit(query: str, person: str, works: tuple[str, ...]) -> None:
                 log.info("resumen con IA: falla del chat")
                 stored[key] = Failure(UNAVAILABLE)
     summary = stored[key]
-    with st.container(border=True):
-        st.markdown("**Por qué podría encajar con tu idea**")
-        if isinstance(summary, Summary):
-            # Texto plano: lo escribió un modelo y no debe interpretarse como formato.
-            st.text(summary.text)
-            st.caption("Obra seleccionada")
-            st.text(f"[{summary.work}] {works[summary.work - 1]}")
-            st.caption("Sus obras afines, numeradas")
-            st.text("\n".join(f"[{number}] {work}" for number, work in enumerate(works, start=1)))
-            st.caption(
-                "Resumen generado por IA (Qwen) a partir de sus obras afines a tu idea; cada "
-                "número entre corchetes es una de las obras de la lista. Puede equivocarse: "
-                "revisa sus trabajos antes de escribirle."
-            )
-        elif isinstance(summary, Failure):
-            st.caption(f"{summary.message}.")
-            st.button(
-                "Reintentar el resumen",
-                icon=":material/refresh:",
-                on_click=forget_summary,
-                args=(key,),
-            )
-        else:
-            # El modelo respondió, pero sin un resumen que cite sus obras: no se reintenta.
-            st.caption("No pudimos generar un resumen confiable para esta persona.")
+    if isinstance(summary, Summary):
+        # Texto plano: lo escribió un modelo y no debe interpretarse como formato.
+        st.text(summary.text)
+        st.caption("Obra seleccionada")
+        st.text(f"[{summary.work}] {works[summary.work - 1]}")
+        st.caption("Sus obras afines, numeradas")
+        st.text("\n".join(f"[{number}] {work}" for number, work in enumerate(works, start=1)))
+        st.caption(
+            "Resumen generado por IA (Qwen) a partir de sus obras afines a tu idea; cada "
+            "número entre corchetes es una de las obras de la lista. Puede equivocarse: "
+            "revisa sus trabajos antes de escribirle."
+        )
+    elif isinstance(summary, Failure):
+        st.caption(f"{summary.message}.")
+        st.button(
+            "Reintentar el resumen",
+            icon=":material/refresh:",
+            on_click=forget_summary,
+            args=(key,),
+        )
+    else:
+        # El modelo respondió, pero sin un resumen que cite sus obras: no se reintenta.
+        st.caption("No se pudo generar un resumen confiable para esta persona.")
 
 
 def search_neighbor(query: str) -> None:
@@ -409,10 +422,9 @@ with st.form("finder"):
     # El aviso va antes del botón: nada sale del servidor sin que el visitante lo haya leído.
     if index_version() is not None and is_configured():
         st.caption(
-            "Al buscar, tu idea y hasta 100 títulos públicos se envían a Alibaba Cloud para "
-            "calcular similitud y ordenar los resultados; también al pedir áreas cercanas o al "
-            "abrir un perfil, para resumir con IA por qué encaja. No incluyas información "
-            "personal o confidencial."
+            "Tu idea pasa por un modelo de lenguaje (Qwen, en Alibaba Cloud) para buscar y, si "
+            "lo pides, resumir con IA. No se guarda ni se usa para entrenar modelos. Evita datos "
+            "personales o confidenciales."
         )
     submitted = st.form_submit_button("Buscar afinidades", type="primary", icon=":material/search:")
 
@@ -464,8 +476,8 @@ if results.semantic and results.uncovered:
         )
     elif not neighbors:
         st.info(
-            "No encontramos un área cercana con trabajos en el catálogo. Prueba con otras "
-            "palabras de tu idea.",
+            "No hay un área cercana con trabajos en el catálogo. Prueba con otras palabras de "
+            "tu idea.",
             icon=":material/search_off:",
         )
     else:
@@ -514,7 +526,7 @@ with left:
     st.subheader("Laboratorios afines")
     top_labs = labs.head(5).sort("affinity")
     if top_labs.is_empty():
-        st.info("No encontramos laboratorios con títulos relacionados.")
+        st.info("No hay laboratorios con títulos relacionados.")
     else:
         fig = px.bar(
             top_labs,
@@ -534,7 +546,7 @@ with right:
     st.subheader("Personas afines")
     top_people = people.head(5).sort("affinity")
     if top_people.is_empty():
-        st.info("No encontramos asesores con títulos relacionados.")
+        st.info("No hay asesores con títulos relacionados.")
     else:
         fig = px.bar(
             top_people,
@@ -652,9 +664,10 @@ letras o más, la página lo dice.
 **Lo que hace la IA.** Dos ayudas usan un modelo de lenguaje (Qwen3.7 Flash), y solo cuando
 las pides. Si una palabra de tu idea no tiene trabajos, el botón *Sugerir áreas cercanas*
 propone hasta tres áreas que sí tienen títulos en el catálogo; cada una se comprueba antes de
-mostrarse. Al abrir el perfil de una persona desde aquí, un resumen de 3 a 5 oraciones explica
-por qué podría encajar con tu idea y cita sus obras afines por número, como [1] o [2][3], con
-la lista debajo; solo usa esos títulos, y cada cita y la obra señalada siempre son de ella.
+mostrarse. En el perfil de una persona abierto desde aquí, el desplegable *Por qué podría
+encajar con tu idea* da un resumen de 3 a 5 oraciones que cita sus obras afines por número,
+como [1] o [2][3], con la lista debajo; solo usa esos títulos, y cada cita y la obra señalada
+siempre son de ella.
 Ambas pueden equivocarse: revisa los trabajos antes de escribirle a alguien.
 
 **Limitaciones.** Solo se leen títulos, no resúmenes. Las tesis se vinculan con Director 1 y

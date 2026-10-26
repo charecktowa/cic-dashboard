@@ -19,10 +19,7 @@ from common import (
 pairs = load("lab_pairs")
 
 st.title("Colaboración")
-st.markdown(
-    "La investigación rara vez se hace en un solo laboratorio. Aquí se ve qué laboratorios "
-    "trabajan juntos y qué personas coinciden más en tesis."
-)
+st.markdown("Qué laboratorios trabajan juntos y qué personas coinciden más en tesis.")
 
 # --- Heatmap ----------------------------------------------------------------
 
