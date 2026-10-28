@@ -411,6 +411,31 @@ def test_lab_members_link_to_their_profile() -> None:
 
 
 @pytest.mark.usefixtures("tables")
+@pytest.mark.parametrize(
+    ("lab", "summary"),
+    [
+        ("Procesamiento de Lenguaje Natural", "2 de 3 personas · Nivel II (1), Nivel I (1)"),
+        ("Robótica y Mecatrónica", "1 de 3 personas · Emérito (1)"),
+        # Nadie del laboratorio coincide con el padrón: no se dice nada.
+        ("Ciberseguridad", None),
+    ],
+)
+def test_lab_people_count_who_is_in_the_snii(lab: str, summary: str | None) -> None:
+    app = open_page("laboratorios")
+    app.selectbox[0].set_value(lab).run()
+    assert not app.exception, app.exception
+    shown = [m.value for m in app.markdown if m.value.startswith("**En el SNII:**")]
+    if summary is None:
+        assert shown == []
+    else:
+        assert shown == [
+            f"**En el SNII:** {summary} · según el padrón del 2.º semestre de 2025 (SECIHTI)."
+        ]
+    # Nunca se nombra a nadie en esa línea.
+    assert not any("Persona" in line for line in shown)
+
+
+@pytest.mark.usefixtures("tables")
 def test_finder_dialog_links_to_the_profile_page() -> None:
     app = search_finder(open_page("encuentra"), "deep learning")
     opener = next(b for b in app.button if str(b.key).startswith("open-"))
