@@ -801,7 +801,7 @@ def semantic_finder(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
 def test_finder_uses_semantic_search_within_the_limits(semantic_finder: list[str]) -> None:
     app = search_finder(open_page("encuentra"), "visión por computadora con redes neuronales")
     assert not app.exception, app.exception
-    assert any("Alibaba Cloud" in c.value for c in app.caption)
+    assert any("pasa por un modelo de lenguaje" in c.value for c in app.caption)
     assert semantic_finder
 
 
@@ -900,7 +900,7 @@ def test_count_label_agrees_with_the_number(n: int, label: str) -> None:
 @pytest.mark.usefixtures("tables")
 def test_finder_warns_about_the_provider_before_any_search(semantic_finder: list[str]) -> None:
     app = open_page("encuentra")
-    assert any("(Qwen, en Alibaba Cloud)" in c.value for c in app.caption)
+    assert any("Tu idea pasa por un modelo de lenguaje" in c.value for c in app.caption)
     # Abrir la página no manda nada.
     assert semantic_finder == []
 
