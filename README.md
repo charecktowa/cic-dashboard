@@ -155,6 +155,25 @@ Una persona partida en varios perfiles de OpenAlex lleva sus ids separados por `
 los suma. El CSV está versionado para que las correcciones no se pierdan. Sin los archivos
 `openalex_*`, la pestaña **Publicaciones** del perfil simplemente lo indica.
 
+## 1c. Nivel en el SNII (opcional)
+
+`snii.py` vincula a cada persona investigadora con el
+[padrón del SNII](https://www.datos.gob.mx/dataset/sistema_nacional_investigadoras_investigadores_snii_s191)
+que publica SECIHTI en datos.gob.mx (CC BY 4.0) y escribe `data/snii.parquet` con su nivel y
+su vigencia. El servidor de datos.gob.mx rechaza las descargas que no vienen de un navegador,
+así que el CSV se descarga a mano; el nombre del archivo dice el corte (`2s_2025`):
+
+```bash
+uv run python snii.py ~/Downloads/s191_snii_2s_2025.csv
+```
+
+El padrón no distingue al CIC de otros centros del IPN, así que el vínculo es por nombre, sin
+acentos y dentro del IPN. Solo se asigna un registro si es el único posible; el script lista
+a quien tiene varios para revisarlo a mano. Quien no aparece no queda en la tabla: el tablero
+muestra el nivel de quien está y nunca dice que alguien no está. Tampoco publica los montos
+del estímulo. Sin `snii.parquet`, el perfil y los laboratorios simplemente no muestran el
+nivel.
+
 ## 2. Probar en local
 
 ```bash

@@ -86,7 +86,24 @@ top_work = load("openalex_works").sort("cited_by_count", descending=True).row(0,
 pairs_people = load("person_pairs").filter(pl.col("person") < pl.col("other"))
 top_duo = pairs_people.sort("theses", descending=True).row(0, named=True)
 # `rising` va del cambio más negativo al más positivo: el primero es el que más cayó.
-top_falling = rising.row(0, named=True)["term"]
+top_falling = rising.row(0, named=True)
+
+
+def titles_before_and_now(term: str) -> str | None:
+    """Los títulos con `term` en la ventana anterior y en la reciente, como "12 → 27"."""
+    row = rising.filter(pl.col("term") == term)
+    return f"{row['before'][0]} → {row['recent'][0]}" if row.height else None
+
+
+# El contraste con lo que reemplaza a las redes neuronales a secas: deep learning y los LLM.
+contrast = [
+    f"{label} ({counts})"
+    for label, term in (
+        ("**deep learning** subió", "deep learning"),
+        ("los **LLM** aparecieron", "large language"),
+    )
+    if (counts := titles_before_and_now(term))
+]
 
 facts = [
     (
@@ -133,7 +150,10 @@ facts = [
     ),
     (
         ":material/trending_down:",
-        f"El tema que más cayó en los títulos de los últimos 4 años es **{top_falling}**.",
+        f"El tema que más cayó en los títulos de los últimos 4 años es **{top_falling['term']}** "
+        f"({top_falling['before']} → {top_falling['recent']} títulos)"
+        + (", mientras " + " y ".join(contrast) if contrast else "")
+        + ".",
     ),
 ]
 for row in range(0, len(facts), 3):

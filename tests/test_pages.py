@@ -107,6 +107,40 @@ render_profile({person!r})
     assert "Mi tesis doctoral" not in " ".join(m.value for m in app.markdown)
 
 
+# El mismo año que usa conftest.py para los datos falsos.
+YEAR = datetime.date.today().year
+
+
+@pytest.mark.usefixtures("tables")
+@pytest.mark.parametrize(
+    ("person", "badge", "term"),
+    [
+        ("Persona 1", "SNII · Nivel II", f"Vigente {YEAR - 1}–{YEAR + 3}"),
+        # Ya pasó el año en que vencía: no se da por vencida, se dice que falta actualizar.
+        ("Persona 2", "SNII · Nivel I", "Vigencia por actualizar"),
+        ("Persona 4", "SNII · Emérito", f"Desde {YEAR - 10}"),
+        # Quien no aparece en el padrón no muestra nada, ni siquiera que no está.
+        ("Persona 3", None, None),
+    ],
+)
+def test_profile_shows_the_snii_level_and_term(
+    person: str, badge: str | None, term: str | None
+) -> None:
+    app = AppTest.from_string(
+        f"from advisor import render_profile\nrender_profile({person!r})", default_timeout=60
+    ).run()
+    assert not app.exception, app.exception
+    # st.badge llega como markdown (":primary-badge[...]").
+    badges = " ".join(m.value for m in app.markdown if "-badge[" in m.value)
+    captions = " ".join(c.value for c in app.caption)
+    if badge is None:
+        assert "SNII" not in badges
+        assert "padrón del SNII" not in captions
+    else:
+        assert badge in badges
+        assert f"{term} · según el padrón del SNII del 2.º semestre de 2025" in captions
+
+
 def test_missing_optional_table_is_none() -> None:
     import common
 
@@ -374,6 +408,31 @@ def test_lab_members_link_to_their_profile() -> None:
     lab = app.selectbox[0].value
     members = common.load("people").filter(pl.col("lab") == lab)["person"]
     assert sorted(profile_links(app)) == sorted(members)
+
+
+@pytest.mark.usefixtures("tables")
+@pytest.mark.parametrize(
+    ("lab", "summary"),
+    [
+        ("Procesamiento de Lenguaje Natural", "2 de 3 personas · Nivel II (1), Nivel I (1)"),
+        ("Robótica y Mecatrónica", "1 de 3 personas · Emérito (1)"),
+        # Nadie del laboratorio coincide con el padrón: no se dice nada.
+        ("Ciberseguridad", None),
+    ],
+)
+def test_lab_people_count_who_is_in_the_snii(lab: str, summary: str | None) -> None:
+    app = open_page("laboratorios")
+    app.selectbox[0].set_value(lab).run()
+    assert not app.exception, app.exception
+    shown = [m.value for m in app.markdown if m.value.startswith("**En el SNII:**")]
+    if summary is None:
+        assert shown == []
+    else:
+        assert shown == [
+            f"**En el SNII:** {summary} · según el padrón del 2.º semestre de 2025 (SECIHTI)."
+        ]
+    # Nunca se nombra a nadie en esa línea.
+    assert not any("Persona" in line for line in shown)
 
 
 @pytest.mark.usefixtures("tables")
@@ -767,7 +826,7 @@ def semantic_finder(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
 def test_finder_uses_semantic_search_within_the_limits(semantic_finder: list[str]) -> None:
     app = search_finder(open_page("encuentra"), "visión por computadora con redes neuronales")
     assert not app.exception, app.exception
-    assert any("Alibaba Cloud" in c.value for c in app.caption)
+    assert any("pasa por un modelo de lenguaje" in c.value for c in app.caption)
     assert semantic_finder
 
 
@@ -866,7 +925,7 @@ def test_count_label_agrees_with_the_number(n: int, label: str) -> None:
 @pytest.mark.usefixtures("tables")
 def test_finder_warns_about_the_provider_before_any_search(semantic_finder: list[str]) -> None:
     app = open_page("encuentra")
-    assert any("(Qwen, en Alibaba Cloud)" in c.value for c in app.caption)
+    assert any("Tu idea pasa por un modelo de lenguaje" in c.value for c in app.caption)
     # Abrir la página no manda nada.
     assert semantic_finder == []
 

@@ -19,6 +19,14 @@ Las métricas de citas y los trabajos más citados de cada persona vienen de
 cada persona del CIC y su perfil de OpenAlex se revisó a mano; un vínculo equivocado se
 puede reportar como dice *Contacto y correcciones*.
 
+El nivel en el SNII y su vigencia vienen del
+[padrón del Sistema Nacional de Investigadoras e Investigadores](https://www.datos.gob.mx/dataset/sistema_nacional_investigadoras_investigadores_snii_s191)
+que publica la **SECIHTI** en datos.gob.mx, con licencia
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.es). El padrón no distingue al CIC
+de otros centros del IPN, así que el vínculo es por nombre: si alguien no aparece, puede ser
+que su nombre esté escrito de otra forma. El tablero no muestra quién no está en el SNII ni
+los montos del estímulo.
+
 El sitio del CIC permite reproducir su contenido con fines no lucrativos, sin mutilarlo y citando la
 fuente completa. Este tablero no reproduce las páginas: calcula conteos a partir de ellas,
 cita su origen en cada página y no tiene fines de lucro.

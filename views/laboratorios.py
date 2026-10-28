@@ -13,6 +13,7 @@ from common import (
     footer,
     lab_colors,
     load,
+    load_optional,
     person_colors,
     show,
     show_terms,
@@ -26,6 +27,28 @@ lab_stats = load("lab_stats")
 outputs = load("outputs_by_year")
 signature = load("signature")
 people = load("people")
+snii = load_optional("snii")
+# Del más alto al más bajo, para leer primero lo que más pesa.
+SNII_ORDER = ["Emérito", "Nivel III", "Nivel II", "Nivel I", "Candidato"]
+
+
+def snii_summary(members: list[str]) -> str | None:
+    """Cuántas personas del laboratorio están en el SNII y en qué niveles, sin nombrarlas.
+
+    None si no hay padrón o nadie del laboratorio coincide con él.
+    """
+    if snii is None:
+        return None
+    found = snii.filter(pl.col("person").is_in(members))
+    if found.is_empty():
+        return None
+    counts = dict(found.group_by("level").len().iter_rows())
+    levels = ", ".join(f"{level} ({counts[level]})" for level in SNII_ORDER if level in counts)
+    return (
+        f"**En el SNII:** {found.height} de {len(members)} personas · {levels} · según el "
+        f"padrón del {found['cut'][0]} (SECIHTI)."
+    )
+
 
 st.title("Laboratorios")
 st.markdown(
@@ -77,6 +100,9 @@ explain(
 - **Personas investigadoras**: quienes tienen ese laboratorio como adscripción principal en
   el sitio del CIC.
 - **Productos por persona investigadora** ayuda a comparar laboratorios grandes con chicos.
+- **SNII**, en la pestaña *Personas*: cuántas tienen un nivel vigente en el padrón del Sistema
+  Nacional de Investigadoras e Investigadores que publica SECIHTI. El vínculo es por nombre,
+  así que alguien con su nombre escrito de otra forma en el padrón puede no contarse.
 """
 )
 
@@ -151,6 +177,8 @@ with tab_people:
         fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
         fig.update_layout(showlegend=False, height=26 * members.height + 100)
         show(fig)
+        if summary := snii_summary(members["person"].to_list()):
+            st.markdown(summary)
         st.markdown("**Ver el perfil completo de:**")
         with st.container(horizontal=True, gap="small"):
             for name in members.sort("person")["person"]:
