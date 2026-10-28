@@ -161,7 +161,22 @@ def tables(catalog: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     built = export.build(catalog)
     export.write(built, FAKE_DATA)
     write_fake_openalex(built["people"])
+    write_fake_snii()
     return built
+
+
+def write_fake_snii() -> None:
+    """Tres personas en el SNII: una vigente, una con la vigencia ya pasada y una emérita."""
+    pl.DataFrame(
+        {
+            "person": ["Persona 1", "Persona 2", "Persona 4"],
+            "level": ["Nivel II", "Nivel I", "Emérito"],
+            "start": [YEAR - 1, YEAR - 5, YEAR - 10],
+            "end": [YEAR + 3, YEAR - 1, None],
+            "cut": ["2.º semestre de 2025"] * 3,
+        },
+        schema_overrides={"start": pl.Int32, "end": pl.Int32},
+    ).write_parquet(FAKE_DATA / "snii.parquet")
 
 
 def write_fake_openalex(people: pl.DataFrame) -> None:

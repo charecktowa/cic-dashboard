@@ -10,6 +10,7 @@ import streamlit as st
 from common import (
     BLUE,
     CORAL,
+    CURRENT_YEAR,
     KIND_COLORS,
     LABELS,
     OPENALEX_URL,
@@ -149,6 +150,7 @@ def render_profile(person: str) -> None:
     per_year = load("person_year").filter(pl.col("person") == person)
 
     st.caption(profile["lab"] or "Sin laboratorio en el CIC (participa como persona externa)")
+    render_snii(person)
     render_cards(profile, per_year)
     overview, theses, by_year, venues, projects, topics, standing, publications = st.tabs(
         [
@@ -196,8 +198,41 @@ def render_profile(person: str) -> None:
   en el comité. Útil para pensar en un posible codirector.
 - **Su lugar en el CIC**: su posición entre el personal investigador con laboratorio en el
   CIC; los empates comparten lugar.
+- **SNII**: su nivel y vigencia según el padrón del Sistema Nacional de Investigadoras e
+  Investigadores que publica SECIHTI. Si ya pasó el año en que vencía, dice *por actualizar*:
+  el padrón tarda en reflejar las renovaciones. Si no aparece, puede ser que su nombre no
+  coincida con el del padrón.
 """
     )
+
+
+def render_snii(person: str) -> None:
+    """Su nivel en el SNII y su vigencia, con el corte del padrón. Nada si no aparece.
+
+    Que alguien no esté en la tabla no quiere decir que no esté en el SNII (su nombre pudo no
+    coincidir), así que la ausencia nunca se muestra.
+    """
+    snii = load_optional("snii")
+    found = snii.filter(pl.col("person") == person) if snii is not None else None
+    if found is None or found.is_empty():
+        return
+    row = found.row(0, named=True)
+    with st.container(horizontal=True, gap="small", vertical_alignment="center"):
+        st.badge(f"SNII · {row['level']}", icon=":material/workspace_premium:", color="primary")
+        st.caption(f"{snii_term(row)} · según el padrón del SNII del {row['cut']} (SECIHTI)")
+
+
+def snii_term(row: dict) -> str:
+    """La vigencia, sin dar por vencido a nadie: el padrón puede ser de hace meses.
+
+    Si ya pasó el año en que vencía, lo más probable es que haya renovado y el padrón no lo
+    diga todavía; por eso "por actualizar" y no la fecha.
+    """
+    if row["end"] is None:
+        return f"Desde {row['start']}"
+    if row["end"] < CURRENT_YEAR:
+        return "Vigencia por actualizar"
+    return f"Vigente {row['start']}–{row['end']}"
 
 
 def render_cards(profile: dict, per_year: pl.DataFrame) -> None:

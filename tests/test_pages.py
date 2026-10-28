@@ -107,6 +107,40 @@ render_profile({person!r})
     assert "Mi tesis doctoral" not in " ".join(m.value for m in app.markdown)
 
 
+# El mismo año que usa conftest.py para los datos falsos.
+YEAR = datetime.date.today().year
+
+
+@pytest.mark.usefixtures("tables")
+@pytest.mark.parametrize(
+    ("person", "badge", "term"),
+    [
+        ("Persona 1", "SNII · Nivel II", f"Vigente {YEAR - 1}–{YEAR + 3}"),
+        # Ya pasó el año en que vencía: no se da por vencida, se dice que falta actualizar.
+        ("Persona 2", "SNII · Nivel I", "Vigencia por actualizar"),
+        ("Persona 4", "SNII · Emérito", f"Desde {YEAR - 10}"),
+        # Quien no aparece en el padrón no muestra nada, ni siquiera que no está.
+        ("Persona 3", None, None),
+    ],
+)
+def test_profile_shows_the_snii_level_and_term(
+    person: str, badge: str | None, term: str | None
+) -> None:
+    app = AppTest.from_string(
+        f"from advisor import render_profile\nrender_profile({person!r})", default_timeout=60
+    ).run()
+    assert not app.exception, app.exception
+    # st.badge llega como markdown (":primary-badge[...]").
+    badges = " ".join(m.value for m in app.markdown if "-badge[" in m.value)
+    captions = " ".join(c.value for c in app.caption)
+    if badge is None:
+        assert "SNII" not in badges
+        assert "padrón del SNII" not in captions
+    else:
+        assert badge in badges
+        assert f"{term} · según el padrón del SNII del 2.º semestre de 2025" in captions
+
+
 def test_missing_optional_table_is_none() -> None:
     import common
 
